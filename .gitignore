@@ -1,0 +1,16 @@
+# Archivos temporales y de compilación
+*.bin
+*.elf
+*.map
+build/
+build_output/
+.system_generated/
+scratch/
+__pycache__/
+*.pyc
+
+# IDE y Sistema Operativo
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

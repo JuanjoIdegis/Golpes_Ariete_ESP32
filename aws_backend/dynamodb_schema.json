@@ -1,0 +1,30 @@
+{
+  "TableName": "ESP32_ControlTable",
+  "AttributeDefinitions": [
+    {
+      "AttributeName": "device_id",
+      "AttributeType": "S"
+    }
+  ],
+  "KeySchema": [
+    {
+      "AttributeName": "device_id",
+      "KeyType": "HASH"
+    }
+  ],
+  "BillingMode": "PAY_PER_REQUEST",
+  "InitialItemExample": {
+    "device_id": "esp32_01",
+    "state": "STOPPED",
+    "is_running": false,
+    "time_on": 5,
+    "time_off": 5,
+    "cycle_count": 0,
+    "remaining_sec": 0,
+    "target_time_on": 5,
+    "target_time_off": 5,
+    "target_running": false,
+    "cmd_reset_cycles": false,
+    "last_seen": 0
+  }
+}
