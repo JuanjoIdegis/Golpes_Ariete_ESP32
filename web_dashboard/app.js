@@ -37,8 +37,7 @@ async function fetchDeviceList() {
         const response = await fetch(`${AWS_API_BASE_URL}&device_id=all`, {
             method: "GET",
             headers: {
-                "Accept": "application/json",
-                "x-api-key": "GolpesAriete2026SecureKey!"
+                "Accept": "application/json"
             }
         });
 
@@ -118,8 +117,7 @@ async function fetchSystemStatus() {
         const response = await fetch(url, {
             method: "GET",
             headers: {
-                "Accept": "application/json",
-                "x-api-key": "GolpesAriete2026SecureKey!"
+                "Accept": "application/json"
             }
         });
 
