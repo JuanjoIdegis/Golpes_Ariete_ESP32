@@ -22,13 +22,13 @@ let currentData = {
     target_time_off: 5
 };
 
-const POLLING_INTERVAL_MS = 1500;
+const POLLING_INTERVAL_MS = 4000; // Consultar estado cada 4s (Ahorro del 65% de peticiones HTTP en AWS)
 
 document.addEventListener("DOMContentLoaded", () => {
     fetchDeviceList();
     fetchSystemStatus();
     setInterval(fetchSystemStatus, POLLING_INTERVAL_MS);
-    setInterval(fetchDeviceList, 10000); // Refrescar lista de dispositivos automáticamente cada 10s
+    setInterval(fetchDeviceList, 20000); // Refrescar lista de dispositivos automáticamente cada 20s
 });
 
 // Obtener dinámicamente todos los ESP32 registrados en AWS DynamoDB

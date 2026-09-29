@@ -62,7 +62,7 @@ def lambda_handler(event, context):
                 items = scan_res.get("Items", [])
                 for it in items:
                     last_seen = int(it.get("last_seen", 0))
-                    it["is_online"] = (current_time - last_seen) <= 10
+                    it["is_online"] = (current_time - last_seen) <= 20
                     it["server_time"] = current_time
                 return {
                     "statusCode": 200,
@@ -93,7 +93,7 @@ def lambda_handler(event, context):
             })
 
             last_seen = int(item.get("last_seen", 0))
-            item["is_online"] = (current_time - last_seen) <= 10
+            item["is_online"] = (current_time - last_seen) <= 20
             item["server_time"] = current_time
 
             return {

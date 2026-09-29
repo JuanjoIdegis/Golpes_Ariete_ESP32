@@ -17,7 +17,7 @@
 #define LEVEL_SENSOR_PIN 5            // Pin GPIO para la señal de salida del sensor XKC-Y25-PNP
 #define LEVEL_SENSOR_ACTIVE_HIGH true // PNP: HIGH indica nivel detectado (agua presente), LOW indica sin nivel (tanque vacío)
 
-// Intervalo de sincronización con AWS en milisegundos (2000 ms = 2 segundos)
-#define AWS_SYNC_INTERVAL_MS 2000
+// Intervalo de sincronización con AWS en milisegundos (5000 ms = 5 segundos para optimizar cuota de peticiones)
+#define AWS_SYNC_INTERVAL_MS 5000
 
 #endif // CONFIG_H
