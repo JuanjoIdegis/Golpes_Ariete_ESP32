@@ -12,7 +12,6 @@ class DecimalEncoder(json.JSONEncoder):
             return float(o)
         return super(DecimalEncoder, self).default(o)
 
-# Nombre exclusivo de tabla DynamoDB para Golpes Ariete
 TABLE_NAME = os.environ.get("DYNAMODB_TABLE", "GolpesAriete_ControlTable")
 dynamodb = boto3.resource("dynamodb")
 table = dynamodb.Table(TABLE_NAME)
@@ -20,7 +19,7 @@ table = dynamodb.Table(TABLE_NAME)
 def lambda_handler(event, context):
     """
     Función AWS Lambda exclusiva para Golpes Ariete.
-    Incluye contador de peticiones (request_count) y seguridad x-api-key.
+    Soporta HTTP API v2 y REST API v1 de API Gateway + Seguridad Wiz x-api-key.
     """
     headers = {
         "Content-Type": "application/json",
@@ -29,7 +28,8 @@ def lambda_handler(event, context):
         "Access-Control-Allow-Methods": "OPTIONS,GET,POST"
     }
     
-    http_method = event.get("httpMethod", "GET")
+    # Detección universal del método HTTP (para HTTP API v2 y REST API v1)
+    http_method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method", "GET")
     
     if http_method == "OPTIONS":
         return {
@@ -84,8 +84,8 @@ def lambda_handler(event, context):
             client_type = body.get("client_type", "esp32")
 
             if client_type == "web":
-                update_expr = ["ADD request_count :inc"]
-                expr_attr_values = {":inc": Decimal("1")}
+                update_expr = []
+                expr_attr_values = {}
                 expr_attr_names = {}
 
                 if "time_on" in body:
@@ -113,12 +113,13 @@ def lambda_handler(event, context):
                     expr_attr_values[":reset"] = bool(body["cmd_reset_cycles"])
                     expr_attr_names["#reset"] = "cmd_reset_cycles"
 
-                table.update_item(
-                    Key={"device_id": "esp32_01"},
-                    UpdateExpression="SET " + ", ".join([e for e in update_expr if e.startswith("#")]),
-                    ExpressionAttributeValues={k: v for k, v in expr_attr_values.items() if k != ":inc"},
-                    ExpressionAttributeNames=expr_attr_names
-                ) if len(update_expr) > 1 else None
+                if update_expr:
+                    table.update_item(
+                        Key={"device_id": "esp32_01"},
+                        UpdateExpression="SET " + ", ".join(update_expr),
+                        ExpressionAttributeValues=expr_attr_values,
+                        ExpressionAttributeNames=expr_attr_names
+                    )
 
                 # Incrementar contador de peticiones
                 table.update_item(
