@@ -238,8 +238,14 @@ async function setSystemState(shouldRun) {
         const payload = {
             client_type: "web",
             device_id: currentDeviceId,
-            is_running: shouldRun
+            is_running: shouldRun,
+            target_running: shouldRun
         };
+
+        // Actualización optimista inmediata de la interfaz
+        currentData.is_running = shouldRun;
+        currentData.state = shouldRun ? "ON" : "STOPPED";
+        updateUI(currentData);
 
         await sendPostToAWS(payload);
         fetchSystemStatus();
