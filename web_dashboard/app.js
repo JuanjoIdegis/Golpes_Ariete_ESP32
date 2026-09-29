@@ -1,5 +1,5 @@
-// Endpoint de AWS API Gateway Cloud (eu-north-1)
-const AWS_API_URL = "https://cosqwrexxk.execute-api.eu-north-1.amazonaws.com/default/LabEngineSync?api_key=FluidraLab2026SecureKey!";
+// Endpoint de AWS API Gateway Cloud Exclusivo (eu-north-1)
+const AWS_API_URL = "https://d3h13f6kjb.execute-api.eu-north-1.amazonaws.com/default/GolpesAriete_SyncBackend?api_key=GolpesAriete2026SecureKey!";
 
 // Estado de la aplicación local
 let currentData = {
@@ -32,7 +32,7 @@ async function fetchSystemStatus() {
             method: "GET",
             headers: {
                 "Accept": "application/json",
-                "x-api-key": "FluidraLab2026SecureKey!"
+                "x-api-key": "GolpesAriete2026SecureKey!"
             }
         });
 
@@ -213,7 +213,7 @@ async function sendPostToAWS(payload) {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
-            "x-api-key": "FluidraLab2026SecureKey!"
+            "x-api-key": "GolpesAriete2026SecureKey!"
         },
         body: JSON.stringify(payload)
     });
