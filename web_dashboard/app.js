@@ -291,16 +291,22 @@ async function saveTimers(event) {
             time_off: timeOffVal
         };
 
+        // Actualización local inmediata de tiempos
+        currentData.time_on = timeOnVal;
+        currentData.target_time_on = timeOnVal;
+        currentData.time_off = timeOffVal;
+        currentData.target_time_off = timeOffVal;
+
         const btn = document.getElementById("btnSaveConfig");
         const originalText = btn.innerHTML;
-        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> <span>Guardando...</span>`;
+        btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> <span>¡Guardado!</span>`;
 
         await sendPostToAWS(payload);
 
         setTimeout(() => {
             btn.innerHTML = originalText;
             fetchSystemStatus();
-        }, 500);
+        }, 1000);
 
     } catch (err) {
         alert("Error al guardar la configuración en AWS: " + err.message);
