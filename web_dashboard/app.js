@@ -1,15 +1,21 @@
 // Endpoint de AWS API Gateway Cloud Exclusivo (eu-north-1)
-const AWS_API_URL = "https://d3h13f6kjb.execute-api.eu-north-1.amazonaws.com/default/GolpesAriete_SyncBackend?api_key=GolpesAriete2026SecureKey!";
+const AWS_API_BASE_URL = "https://d3h13f6kjb.execute-api.eu-north-1.amazonaws.com/default/GolpesAriete_SyncBackend?api_key=GolpesAriete2026SecureKey!";
+
+// Dispositivo actualmente seleccionado
+let currentDeviceId = "esp32_01";
 
 // Estado de la aplicación local
 let currentData = {
+    device_id: "esp32_01",
     state: "STOPPED",
     is_running: false,
     has_level: true,
+    use_sensor: false,
     time_on: 5,
     time_off: 5,
     cycle_count: 0,
     remaining_sec: 0,
+    request_count: 0,
     target_time_on: 5,
     target_time_off: 5
 };
@@ -18,17 +24,24 @@ let currentData = {
 const POLLING_INTERVAL_MS = 1500;
 
 document.addEventListener("DOMContentLoaded", () => {
-    // Primera carga de datos
     fetchSystemStatus();
-
-    // Iniciar actualización periódica
     setInterval(fetchSystemStatus, POLLING_INTERVAL_MS);
 });
 
-// Función para obtener el estado actual desde AWS API Gateway
+// Cambiar de Planta / Dispositivo
+function onDeviceChange() {
+    const select = document.getElementById("deviceSelect");
+    if (select) {
+        currentDeviceId = select.value;
+        fetchSystemStatus();
+    }
+}
+
+// Función para obtener el estado del dispositivo seleccionado desde AWS API Gateway
 async function fetchSystemStatus() {
     try {
-        const response = await fetch(AWS_API_URL, {
+        const url = `${AWS_API_BASE_URL}&device_id=${encodeURIComponent(currentDeviceId)}`;
+        const response = await fetch(url, {
             method: "GET",
             headers: {
                 "Accept": "application/json",
@@ -54,13 +67,22 @@ async function fetchSystemStatus() {
 
 // Actualizar elementos visuales en el DOM
 function updateUI(data) {
-    // 1. Badge de Sensor de Nivel
+    // 1. Badge y Switch de Sensor de Nivel / Flujo
     const levelBadge = document.getElementById("levelBadge");
     const levelText = document.getElementById("levelText");
+    const chkUseSensor = document.getElementById("chkUseSensor");
 
+    const useSensor = data.use_sensor !== undefined ? data.use_sensor : false;
     const hasLevel = data.has_level !== undefined ? data.has_level : true;
 
-    if (hasLevel && data.state !== "NO_LEVEL") {
+    if (chkUseSensor && document.activeElement !== chkUseSensor) {
+        chkUseSensor.checked = useSensor;
+    }
+
+    if (!useSensor) {
+        levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-700 text-slate-400 border border-slate-600";
+        levelText.textContent = "Sensor: Desactivado (Opcional)";
+    } else if (hasLevel && data.state !== "NO_LEVEL") {
         levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
         levelText.textContent = "Nivel: OK";
     } else {
@@ -68,7 +90,7 @@ function updateUI(data) {
         levelText.textContent = "ALERTA: Sin Nivel";
     }
 
-    // 2. Contador de Ciclos y Peticiones
+    // 2. Contador de Ciclos y Peticiones API
     const cycleCountDisplay = document.getElementById("cycleCountDisplay");
     if (cycleCountDisplay) {
         cycleCountDisplay.textContent = data.cycle_count !== undefined ? data.cycle_count : 0;
@@ -103,7 +125,7 @@ function updateUI(data) {
 
     const state = data.state || (data.is_running ? "ON" : "STOPPED");
 
-    if (state === "NO_LEVEL" || !hasLevel) {
+    if (useSensor && (!hasLevel || state === "NO_LEVEL")) {
         stateLabel.textContent = "SIN NIVEL (PARADO OFF)";
         stateLabel.className = "mt-4 text-xl font-bold uppercase tracking-wider text-rose-400";
         stateIconBg.className = "w-24 h-24 rounded-full bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all duration-300 animate-bounce";
@@ -129,7 +151,7 @@ function updateUI(data) {
     const btnStart = document.getElementById("btnStart");
     const btnStop = document.getElementById("btnStop");
 
-    if (data.is_running && hasLevel) {
+    if (data.is_running) {
         btnStart.classList.add("opacity-50", "cursor-not-allowed");
         btnStop.classList.remove("opacity-50", "cursor-not-allowed");
     } else {
@@ -143,6 +165,7 @@ async function setSystemState(shouldRun) {
     try {
         const payload = {
             client_type: "web",
+            device_id: currentDeviceId,
             is_running: shouldRun
         };
 
@@ -150,6 +173,23 @@ async function setSystemState(shouldRun) {
         fetchSystemStatus();
     } catch (err) {
         alert("Error al enviar comando a AWS: " + err.message);
+    }
+}
+
+// Activar/Desactivar Sensor de Nivel Opcional
+async function toggleSensorSetting() {
+    try {
+        const chkUseSensor = document.getElementById("chkUseSensor");
+        const payload = {
+            client_type: "web",
+            device_id: currentDeviceId,
+            use_sensor: chkUseSensor.checked
+        };
+
+        await sendPostToAWS(payload);
+        fetchSystemStatus();
+    } catch (err) {
+        alert("Error al actualizar opción de sensor: " + err.message);
     }
 }
 
@@ -168,6 +208,7 @@ async function saveTimers(event) {
     try {
         const payload = {
             client_type: "web",
+            device_id: currentDeviceId,
             time_on: timeOnVal,
             time_off: timeOffVal
         };
@@ -190,13 +231,14 @@ async function saveTimers(event) {
 
 // Resetear contador de ciclos
 async function resetCycles() {
-    if (!confirm("¿Estás seguro de que deseas resetear el contador de ciclos a 0?")) {
+    if (!confirm(`¿Estás seguro de que deseas resetear el contador de ciclos del dispositivo ${currentDeviceId.upper()} a 0?`)) {
         return;
     }
 
     try {
         const payload = {
             client_type: "web",
+            device_id: currentDeviceId,
             cmd_reset_cycles: true
         };
 
@@ -209,7 +251,7 @@ async function resetCycles() {
 
 // Función auxiliar para realizar llamadas POST a AWS
 async function sendPostToAWS(payload) {
-    const response = await fetch(AWS_API_URL, {
+    const response = await fetch(AWS_API_BASE_URL, {
         method: "POST",
         headers: {
             "Content-Type": "application/json",
@@ -232,9 +274,9 @@ function updateConnectionBadge(isConnected) {
 
     if (isConnected) {
         badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-        text.textContent = "Conectado ESP32";
+        text.textContent = "Conectado AWS";
     } else {
         badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30";
-        text.textContent = "Sin Conexión ESP32";
+        text.textContent = "Sin Conexión AWS";
     }
 }

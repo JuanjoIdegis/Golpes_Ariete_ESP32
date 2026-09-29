@@ -14,6 +14,7 @@ Para evitar colisiones y mantener total independencia entre proyectos:
 * **Función AWS Lambda Exclusiva**: `GolpesAriete_SyncBackend` (Python 3.12)
 * **Endpoint API Gateway Exclusivo**: `/GolpesArieteSync`
 * **API Key de Seguridad**: `GolpesAriete2026SecureKey!`
+* **Despliegue Frontend AWS Amplify**: *Pendiente de crear app independiente en la consola de AWS Amplify (ej. `https://main.xxxx.amplifyapp.com`)*. No compartir con la URL de LabEngine.
 
 ---
 

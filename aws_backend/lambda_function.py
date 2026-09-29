@@ -18,8 +18,8 @@ table = dynamodb.Table(TABLE_NAME)
 
 def lambda_handler(event, context):
     """
-    Función AWS Lambda exclusiva para Golpes Ariete.
-    Soporta HTTP API v2 y REST API v1 de API Gateway + Seguridad Wiz x-api-key.
+    Función AWS Lambda para Golpes Ariete con soporte multidispositivo (multi-ESP32 por Planta).
+    Incluye autenticación Wiz x-api-key y gestión dinámica por device_id.
     """
     headers = {
         "Content-Type": "application/json",
@@ -28,7 +28,6 @@ def lambda_handler(event, context):
         "Access-Control-Allow-Methods": "OPTIONS,GET,POST"
     }
     
-    # Detección universal del método HTTP (para HTTP API v2 y REST API v1)
     http_method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method", "GET")
     
     if http_method == "OPTIONS":
@@ -38,7 +37,7 @@ def lambda_handler(event, context):
             "body": json.dumps({"message": "CORS OK"})
         }
 
-    # Validar API Key exclusiva del proyecto Golpes Ariete
+    # 1. Validar API Key de Seguridad (Wiz Audit Compliance)
     params = event.get("queryStringParameters") or {}
     req_headers = event.get("headers") or {}
     api_key_val = req_headers.get("x-api-key") or req_headers.get("X-Api-Key") or params.get("api_key")
@@ -53,9 +52,24 @@ def lambda_handler(event, context):
 
     try:
         if http_method == "GET":
-            response = table.get_item(Key={"device_id": "esp32_01"})
+            target_device = params.get("device_id")
+
+            if target_device == "all" or target_device == "*":
+                # Escanear y listar todos los dispositivos (para el selector de planta de la Web App)
+                scan_res = table.scan()
+                items = scan_res.get("Items", [])
+                return {
+                    "statusCode": 200,
+                    "headers": headers,
+                    "body": json.dumps(items, cls=DecimalEncoder)
+                }
+            
+            # Consultar un dispositivo específico (por defecto esp32_01 o Planta 1)
+            device_id = target_device or "esp32_01"
+            response = table.get_item(Key={"device_id": device_id})
             item = response.get("Item", {
-                "device_id": "esp32_01",
+                "device_id": device_id,
+                "device_name": f"Dispositivo {device_id.upper()}",
                 "state": "STOPPED",
                 "is_running": False,
                 "has_level": True,
@@ -82,11 +96,18 @@ def lambda_handler(event, context):
             body = json.loads(body_str) if body_str else {}
             
             client_type = body.get("client_type", "esp32")
+            device_id = body.get("device_id", "esp32_01")
+            device_name = body.get("device_name", f"Dispositivo {device_id.upper()}")
 
             if client_type == "web":
                 update_expr = []
                 expr_attr_values = {}
                 expr_attr_names = {}
+
+                if "device_name" in body:
+                    update_expr.append("#d_name = :d_name")
+                    expr_attr_values[":d_name"] = str(body["device_name"])
+                    expr_attr_names["#d_name"] = "device_name"
 
                 if "time_on" in body:
                     update_expr.append("#t_on = :t_on")
@@ -115,15 +136,15 @@ def lambda_handler(event, context):
 
                 if update_expr:
                     table.update_item(
-                        Key={"device_id": "esp32_01"},
+                        Key={"device_id": device_id},
                         UpdateExpression="SET " + ", ".join(update_expr),
                         ExpressionAttributeValues=expr_attr_values,
                         ExpressionAttributeNames=expr_attr_names
                     )
 
-                # Incrementar contador de peticiones
+                # Incrementar contador de peticiones de la API
                 table.update_item(
-                    Key={"device_id": "esp32_01"},
+                    Key={"device_id": device_id},
                     UpdateExpression="ADD request_count :inc",
                     ExpressionAttributeValues={":inc": Decimal("1")}
                 )
@@ -131,10 +152,11 @@ def lambda_handler(event, context):
                 return {
                     "statusCode": 200,
                     "headers": headers,
-                    "body": json.dumps({"status": "success", "message": "Configuración actualizada"})
+                    "body": json.dumps({"status": "success", "message": f"Configuración de {device_id} actualizada"})
                 }
 
             else:
+                # Petición enviada desde el ESP32
                 current_timestamp = int(time.time())
                 state = body.get("state", "STOPPED")
                 is_running = body.get("is_running", False)
@@ -146,11 +168,12 @@ def lambda_handler(event, context):
                 remaining_sec = body.get("remaining_sec", 0)
 
                 table.update_item(
-                    Key={"device_id": "esp32_01"},
-                    UpdateExpression="SET #s = :s, is_running = :r, has_level = :hl, use_sensor = :us, time_on = :ton, time_off = :toff, cycle_count = :cc, remaining_sec = :rem, last_seen = :ls ADD request_count :inc",
+                    Key={"device_id": device_id},
+                    UpdateExpression="SET #s = :s, device_name = :dn, is_running = :r, has_level = :hl, use_sensor = :us, time_on = :ton, time_off = :toff, cycle_count = :cc, remaining_sec = :rem, last_seen = :ls ADD request_count :inc",
                     ExpressionAttributeNames={"#s": "state"},
                     ExpressionAttributeValues={
                         ":s": state,
+                        ":dn": device_name,
                         ":r": is_running,
                         ":hl": bool(has_level),
                         ":us": bool(use_sensor),
@@ -163,12 +186,13 @@ def lambda_handler(event, context):
                     }
                 )
 
-                response = table.get_item(Key={"device_id": "esp32_01"})
+                response = table.get_item(Key={"device_id": device_id})
                 item = response.get("Item", {})
 
                 cmd_reset = item.get("cmd_reset_cycles", False)
                 
                 res_payload = {
+                    "device_id": device_id,
                     "target_time_on": item.get("target_time_on", time_on),
                     "target_time_off": item.get("target_time_off", time_off),
                     "target_running": item.get("target_running", is_running),
@@ -179,7 +203,7 @@ def lambda_handler(event, context):
 
                 if cmd_reset:
                     table.update_item(
-                        Key={"device_id": "esp32_01"},
+                        Key={"device_id": device_id},
                         UpdateExpression="SET cmd_reset_cycles = :f",
                         ExpressionAttributeValues={":f": False}
                     )
