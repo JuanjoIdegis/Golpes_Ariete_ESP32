@@ -3,10 +3,12 @@ const AWS_API_BASE_URL = "https://d3h13f6kjb.execute-api.eu-north-1.amazonaws.co
 
 // Dispositivo actualmente seleccionado
 let currentDeviceId = "esp32_01";
+let registeredDevices = [];
 
 // Estado de la aplicación local
 let currentData = {
     device_id: "esp32_01",
+    device_name: "Planta 1",
     state: "STOPPED",
     is_running: false,
     has_level: true,
@@ -20,13 +22,63 @@ let currentData = {
     target_time_off: 5
 };
 
-// Intervalo de Polling (1.5 segundos)
 const POLLING_INTERVAL_MS = 1500;
 
 document.addEventListener("DOMContentLoaded", () => {
+    fetchDeviceList();
     fetchSystemStatus();
     setInterval(fetchSystemStatus, POLLING_INTERVAL_MS);
+    setInterval(fetchDeviceList, 10000); // Refrescar lista de dispositivos automáticamente cada 10s
 });
+
+// Obtener dinámicamente todos los ESP32 registrados en AWS DynamoDB
+async function fetchDeviceList() {
+    try {
+        const response = await fetch(`${AWS_API_BASE_URL}&device_id=all`, {
+            method: "GET",
+            headers: {
+                "Accept": "application/json",
+                "x-api-key": "GolpesAriete2026SecureKey!"
+            }
+        });
+
+        if (response.ok) {
+            const devices = await response.json();
+            if (Array.isArray(devices) && devices.length > 0) {
+                registeredDevices = devices;
+                renderDeviceSelector();
+            }
+        }
+    } catch (e) {
+        console.warn("Error obteniendo lista de dispositivos:", e);
+    }
+}
+
+// Renderizar dinámicamente el selector de plantas/dispositivos
+function renderDeviceSelector() {
+    const select = document.getElementById("deviceSelect");
+    if (!select) return;
+
+    const previousValue = select.value || currentDeviceId;
+    select.innerHTML = "";
+
+    registeredDevices.forEach(dev => {
+        const devId = dev.device_id;
+        const devName = dev.device_name || `Planta (${devId})`;
+        
+        const option = document.createElement("option");
+        option.value = devId;
+        option.textContent = `${devName} [${devId}]`;
+        select.appendChild(option);
+    });
+
+    if (registeredDevices.some(d => d.device_id === previousValue)) {
+        select.value = previousValue;
+    } else if (registeredDevices.length > 0) {
+        currentDeviceId = registeredDevices[0].device_id;
+        select.value = currentDeviceId;
+    }
+}
 
 // Cambiar de Planta / Dispositivo
 function onDeviceChange() {
@@ -37,7 +89,29 @@ function onDeviceChange() {
     }
 }
 
-// Función para obtener el estado del dispositivo seleccionado desde AWS API Gateway
+// Editar Nombre Personalizado del Dispositivo / Planta
+async function editDeviceName() {
+    const currentName = currentData.device_name || `Planta (${currentDeviceId})`;
+    const newName = prompt(`Ingresa el nuevo nombre para la ubicación (${currentDeviceId}):`, currentName);
+
+    if (newName && newName.trim() !== "" && newName !== currentName) {
+        try {
+            const payload = {
+                client_type: "web",
+                device_id: currentDeviceId,
+                device_name: newName.trim()
+            };
+
+            await sendPostToAWS(payload);
+            fetchDeviceList();
+            fetchSystemStatus();
+        } catch (err) {
+            alert("Error al guardar el nuevo nombre: " + err.message);
+        }
+    }
+}
+
+// Consultar el estado del dispositivo seleccionado desde AWS
 async function fetchSystemStatus() {
     try {
         const url = `${AWS_API_BASE_URL}&device_id=${encodeURIComponent(currentDeviceId)}`;
@@ -231,7 +305,7 @@ async function saveTimers(event) {
 
 // Resetear contador de ciclos
 async function resetCycles() {
-    if (!confirm(`¿Estás seguro de que deseas resetear el contador de ciclos del dispositivo ${currentDeviceId.upper()} a 0?`)) {
+    if (!confirm(`¿Estás seguro de que deseas resetear el contador de ciclos del dispositivo (${currentDeviceId}) a 0?`)) {
         return;
     }
 
