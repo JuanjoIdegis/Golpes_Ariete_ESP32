@@ -326,8 +326,7 @@ async function sendPostToAWS(payload) {
     const response = await fetch(AWS_API_BASE_URL, {
         method: "POST",
         headers: {
-            "Content-Type": "application/json",
-            "x-api-key": "GolpesAriete2026SecureKey!"
+            "Content-Type": "application/json"
         },
         body: JSON.stringify(payload)
     });
