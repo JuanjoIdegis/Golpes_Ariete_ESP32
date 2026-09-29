@@ -64,10 +64,11 @@ function renderDeviceSelector() {
     registeredDevices.forEach(dev => {
         const devId = dev.device_id;
         const devName = dev.device_name || `Planta (${devId})`;
+        const statusIcon = dev.is_online ? "🟢 ONLINE" : "🔴 OFFLINE";
         
         const option = document.createElement("option");
         option.value = devId;
-        option.textContent = `${devName} [${devId}]`;
+        option.textContent = `${statusIcon} - ${devName} (${devId})`;
         select.appendChild(option);
     });
 
@@ -129,7 +130,7 @@ async function fetchSystemStatus() {
         currentData = data;
 
         updateUI(data);
-        updateConnectionBadge(true);
+        updateConnectionBadge(true, data.is_online);
 
     } catch (error) {
         console.warn("Error al consultar AWS API Gateway:", error);
@@ -351,15 +352,18 @@ async function sendPostToAWS(payload) {
 }
 
 // Actualizar badge de conexión en el Header
-function updateConnectionBadge(isConnected) {
+function updateConnectionBadge(isConnectedToAws, isEspOnline = false) {
     const badge = document.getElementById("connectionBadge");
     const text = document.getElementById("connectionText");
 
-    if (isConnected) {
-        badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-        text.textContent = "Conectado AWS";
-    } else {
+    if (!isConnectedToAws) {
         badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30";
         text.textContent = "Sin Conexión AWS";
+    } else if (isEspOnline) {
+        badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        text.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> <span>ESP32 ONLINE</span>`;
+    } else {
+        badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30";
+        text.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>ESP32 OFFLINE</span>`;
     }
 }

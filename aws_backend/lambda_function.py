@@ -54,10 +54,16 @@ def lambda_handler(event, context):
         if http_method == "GET":
             target_device = params.get("device_id")
 
+            current_time = int(time.time())
+
             if target_device == "all" or target_device == "*":
                 # Escanear y listar todos los dispositivos (para el selector de planta de la Web App)
                 scan_res = table.scan()
                 items = scan_res.get("Items", [])
+                for it in items:
+                    last_seen = int(it.get("last_seen", 0))
+                    it["is_online"] = (current_time - last_seen) <= 10
+                    it["server_time"] = current_time
                 return {
                     "statusCode": 200,
                     "headers": headers,
@@ -85,6 +91,11 @@ def lambda_handler(event, context):
                 "cmd_reset_cycles": False,
                 "last_seen": 0
             })
+
+            last_seen = int(item.get("last_seen", 0))
+            item["is_online"] = (current_time - last_seen) <= 10
+            item["server_time"] = current_time
+
             return {
                 "statusCode": 200,
                 "headers": headers,
