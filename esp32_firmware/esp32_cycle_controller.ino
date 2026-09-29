@@ -1,12 +1,13 @@
 /*
- * ESP32 Cycle Controller - Conexión Cloud AWS (API Gateway + Lambda + DynamoDB)
- * Incluye autenticación x-api-key (Wiz Audit Compliance) y sensor de nivel opcional.
+ * ESP32 Cycle Controller - Conexión AWS Cloud (Multi-Dispositivo por Planta)
+ * Incluye Wi-Fi Manager inteligente (Portal Cautivo de Configuración de Wi-Fi)
  */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <WebServer.h>
 #include "config.h"
 
 enum SystemState {
@@ -16,22 +17,24 @@ enum SystemState {
     STATE_NO_LEVEL = 3
 };
 
-// Variables globales de control
-SystemState currentState = STATE_STOPPED;
-unsigned long timeOnSec = 5;      // Tiempo encendido por defecto (segundos)
-unsigned long timeOffSec = 5;     // Tiempo apagado por defecto (segundos)
-unsigned long cycleCount = 0;     // Contador total de ciclos
-bool isRunning = false;           // Estado de ejecución
-bool hasLevel = true;             // Estado del sensor XKC-Y25-PNP
-bool useLevelSensor = false;      // OPCIONAL: Habilitar/Deshabilitar protección por sensor de nivel
+// Configuración de Identificador de Dispositivo por Planta
+String deviceId = "esp32_01"; 
 
-// Control del temporizador millis()
+SystemState currentState = STATE_STOPPED;
+unsigned long timeOnSec = 5;      
+unsigned long timeOffSec = 5;     
+unsigned long cycleCount = 0;     
+bool isRunning = false;           
+bool hasLevel = true;             
+bool useLevelSensor = false;      
+
 unsigned long lastStateChangeMs = 0;
 unsigned long lastAwsSyncMs = 0;
 
 Preferences preferences;
+WebServer server(80);
+bool apPortalActive = false;
 
-// Prototipos de funciones
 void initHardware();
 void setRelayState(bool turnOn);
 bool checkLevelSensor();
@@ -41,24 +44,30 @@ void saveSettingsToNVS();
 void handleCycleStateMachine();
 void syncWithAWS();
 void parseAWSResponse(String payload);
+void startWiFiPortal();
 
 void setup() {
     Serial.begin(115200);
     delay(500);
 
-    Serial.println("\n--- ESP32 Cycle Controller (Modo AWS Cloud Client) ---");
+    Serial.println("\n--- ESP32 Cycle Controller (AWS Cloud Client) ---");
 
     initHardware();
     loadSettingsFromNVS();
 
-    // Conexión Wi-Fi
+    // Intentar conectar a la Wi-Fi guardada o por defecto
+    preferences.begin("wifi_config", true);
+    String storedSsid = preferences.getString("ssid", WIFI_SSID);
+    String storedPass = preferences.getString("pass", WIFI_PASSWORD);
+    preferences.end();
+
     WiFi.mode(WIFI_STA);
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    WiFi.begin(storedSsid.c_str(), storedPass.c_str());
     Serial.print("Conectando a Wi-Fi: ");
-    Serial.println(WIFI_SSID);
+    Serial.println(storedSsid);
 
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    while (WiFi.status() != WL_CONNECTED && attempts < 15) {
         delay(500);
         Serial.print(".");
         attempts++;
@@ -69,23 +78,72 @@ void setup() {
         Serial.print("[Wi-Fi] IP Local: ");
         Serial.println(WiFi.localIP());
     } else {
-        Serial.println("\n[Wi-Fi] No se pudo conectar a la red Wi-Fi. Continuando en modo offline...");
+        Serial.println("\n[Wi-Fi] No se pudo conectar. Iniciando Portal Cautivo para cambiar Wi-Fi...");
+        startWiFiPortal();
     }
 
     lastStateChangeMs = millis();
 }
 
 void loop() {
+    if (apPortalActive) {
+        server.handleClient();
+    }
+    
     hasLevel = checkLevelSensor();
     handleCycleStateMachine();
 
-    // Sincronizar periódicamente con AWS API Gateway
     if (millis() - lastAwsSyncMs >= AWS_SYNC_INTERVAL_MS) {
         lastAwsSyncMs = millis();
         if (WiFi.status() == WL_CONNECTED) {
             syncWithAWS();
         }
     }
+}
+
+void startWiFiPortal() {
+    apPortalActive = true;
+    WiFi.mode(WIFI_AP_STA);
+    String apName = "Config-WiFi-" + deviceId;
+    WiFi.softAP(apName.c_str(), "12345678");
+
+    Serial.println("=======================================================");
+    Serial.printf(" Portal de Configuración Wi-Fi Activo: %s\n", apName.c_str());
+    Serial.printf(" Entra a: http://%s para cambiar la red Wi-Fi\n", WiFi.softAPIP().toString().c_str());
+    Serial.println("=======================================================");
+
+    server.on("/", HTTP_GET, []() {
+        String html = R"rawliteral(
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Configurar Wi-Fi ESP32</title>
+<script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-900 text-white p-6 font-sans max-w-md mx-auto">
+<h2 class="text-xl font-bold mb-4 text-blue-400">Configurar Red Wi-Fi ESP32</h2>
+<form action="/save_wifi" method="POST" class="space-y-4">
+<div><label class="block text-sm">Nombre Wi-Fi (SSID)</label>
+<input type="text" name="ssid" required class="w-full bg-slate-800 p-3 rounded border border-slate-700 font-bold"></div>
+<div><label class="block text-sm">Contraseña</label>
+<input type="password" name="pass" class="w-full bg-slate-800 p-3 rounded border border-slate-700 font-bold"></div>
+<button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-500 font-bold rounded-xl">Guardar y Reiniciar</button>
+</form></body></html>
+)rawliteral";
+        server.send(200, "text/html", html);
+    });
+
+    server.on("/save_wifi", HTTP_POST, []() {
+        String newSsid = server.arg("ssid");
+        String newPass = server.arg("pass");
+
+        preferences.begin("wifi_config", false);
+        preferences.putString("ssid", newSsid);
+        preferences.putString("pass", newPass);
+        preferences.end();
+
+        server.send(200, "text/html", "<h2>Wi-Fi Guardado! Reiniciando ESP32...</h2>");
+        delay(2000);
+        ESP.restart();
+    });
+
+    server.begin();
 }
 
 void initHardware() {
@@ -115,11 +173,8 @@ void loadSettingsFromNVS() {
     cycleCount = preferences.getULong("cycles", 0);
     isRunning = preferences.getBool("running", false);
     useLevelSensor = preferences.getBool("use_sensor", false);
+    deviceId = preferences.getString("dev_id", "esp32_01");
     preferences.end();
-
-    Serial.println("[NVS] Ajustes cargados:");
-    Serial.printf("      T_ON: %lu s | T_OFF: %lu s | Ciclos: %lu | En ejecución: %s | Sensor: %s\n", 
-                  timeOnSec, timeOffSec, cycleCount, isRunning ? "SI" : "NO", useLevelSensor ? "ACTIVADO" : "DESACTIVADO");
 
     currentState = isRunning ? STATE_ON : STATE_STOPPED;
 }
@@ -140,7 +195,6 @@ void saveSettingsToNVS() {
 }
 
 void handleCycleStateMachine() {
-    // PROTECCIÓN DE NIVEL: Evalúa solo si el sensor está activado en los ajustes
     if (useLevelSensor && !hasLevel) {
         if (currentState != STATE_NO_LEVEL) {
             currentState = STATE_NO_LEVEL;
@@ -199,8 +253,6 @@ void handleCycleStateMachine() {
 
 void syncWithAWS() {
     HTTPClient http;
-    
-    // URL con autenticación por querystring + cabecera x-api-key (Seguridad Wiz)
     String url = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
     http.begin(url);
     http.addHeader("Content-Type", "application/json");
@@ -222,7 +274,7 @@ void syncWithAWS() {
 
     StaticJsonDocument<256> doc;
     doc["client_type"] = "esp32";
-    doc["device_id"] = "esp32_01";
+    doc["device_id"] = deviceId;
     doc["state"] = stateStr;
     doc["is_running"] = isRunning;
     doc["has_level"] = hasLevel;
@@ -241,8 +293,6 @@ void syncWithAWS() {
         String response = http.getString();
         if (httpResponseCode == 200) {
             parseAWSResponse(response);
-        } else {
-            Serial.printf("[AWS Cloud HTTP] Respuesta HTTP %d\n", httpResponseCode);
         }
     } else {
         Serial.printf("[AWS HTTP Error] Petición fallida: %s\n", http.errorToString(httpResponseCode).c_str());
@@ -255,11 +305,7 @@ void parseAWSResponse(String payload) {
     StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, payload);
 
-    if (error) {
-        Serial.print("[JSON Error] Deserialización fallida: ");
-        Serial.println(error.c_str());
-        return;
-    }
+    if (error) return;
 
     bool updated = false;
 
@@ -274,7 +320,6 @@ void parseAWSResponse(String payload) {
         if (newSensorSetting != useLevelSensor) {
             useLevelSensor = newSensorSetting;
             updated = true;
-            Serial.printf("[AWS Config] Sensor de Nivel opcional: %s\n", useLevelSensor ? "ACTIVADO" : "DESACTIVADO");
         }
     }
 
@@ -283,7 +328,6 @@ void parseAWSResponse(String payload) {
         if (newOn != timeOnSec && newOn > 0) {
             timeOnSec = newOn;
             updated = true;
-            Serial.printf("[AWS Config] Nuevo Tiempo ON: %lu s\n", timeOnSec);
         }
     }
 
@@ -292,7 +336,6 @@ void parseAWSResponse(String payload) {
         if (newOff != timeOffSec && newOff > 0) {
             timeOffSec = newOff;
             updated = true;
-            Serial.printf("[AWS Config] Nuevo Tiempo OFF: %lu s\n", timeOffSec);
         }
     }
 
@@ -308,7 +351,6 @@ void parseAWSResponse(String payload) {
                 currentState = STATE_STOPPED;
                 setRelayState(false);
             }
-            Serial.printf("[AWS Config] Estado Ejecución modificado: %s\n", isRunning ? "START" : "STOP");
         }
     }
 

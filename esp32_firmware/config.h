@@ -5,9 +5,9 @@
 #define WIFI_SSID "iOT"
 #define WIFI_PASSWORD "C7Ep2sVF9Bm1"
 
-// Endpoint de AWS API Gateway Cloud (eu-north-1)
-#define AWS_API_ENDPOINT "https://cosqwrexxk.execute-api.eu-north-1.amazonaws.com/default/LabEngineSync"
-#define AWS_API_KEY "FluidraLab2026SecureKey!"
+// Endpoint de AWS API Gateway Cloud Exclusivo (eu-north-1)
+#define AWS_API_ENDPOINT "https://d3h13f6kjb.execute-api.eu-north-1.amazonaws.com/default/GolpesAriete_SyncBackend"
+#define AWS_API_KEY "GolpesAriete2026SecureKey!"
 
 // Configuración de Hardware
 #define RELAY_PIN 2            // Pin GPIO para controlar el relé o la carga (GPIO 2 LED integrado)
