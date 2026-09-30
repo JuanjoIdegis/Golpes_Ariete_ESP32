@@ -130,15 +130,17 @@ def lambda_handler(event, context):
                     expr_attr_values[":t_off"] = Decimal(str(body["time_off"]))
                     expr_attr_names["#t_off"] = "target_time_off"
 
-                if "is_running" in body:
-                    update_expr.append("#t_run = :t_run")
-                    expr_attr_values[":t_run"] = bool(body["is_running"])
-                    expr_attr_names["#t_run"] = "target_running"
+                if "sync_interval_ms" in body:
+                    update_expr.append("#s_int = :s_int")
+                    expr_attr_values[":s_int"] = Decimal(str(body["sync_interval_ms"]))
+                    expr_attr_names["#s_int"] = "sync_interval_ms"
 
-                if "use_sensor" in body:
-                    update_expr.append("#u_sens = :u_sens")
-                    expr_attr_values[":u_sens"] = bool(body["use_sensor"])
-                    expr_attr_names["#u_sens"] = "use_sensor"
+                if "ota_url" in body:
+                    update_expr.append("#ota_u = :ota_u, #ota_c = :ota_c")
+                    expr_attr_values[":ota_u"] = str(body["ota_url"])
+                    expr_attr_values[":ota_c"] = True
+                    expr_attr_names["#ota_u"] = "ota_url"
+                    expr_attr_names["#ota_c"] = "cmd_ota_update"
 
                 if "cmd_reset_cycles" in body:
                     update_expr.append("#reset = :reset")
@@ -203,21 +205,27 @@ def lambda_handler(event, context):
                 item = response.get("Item", {})
 
                 cmd_reset = item.get("cmd_reset_cycles", False)
-                
+                cmd_ota = item.get("cmd_ota_update", False)
+                ota_url = item.get("ota_url", "")
+                sync_ms = item.get("sync_interval_ms", 2000)
+
                 res_payload = {
                     "device_id": device_id,
                     "target_time_on": item.get("target_time_on", time_on),
                     "target_time_off": item.get("target_time_off", time_off),
                     "target_running": item.get("target_running", is_running),
                     "use_sensor": item.get("use_sensor", use_sensor),
+                    "sync_interval_ms": sync_ms,
                     "cmd_reset_cycles": cmd_reset,
+                    "cmd_ota_update": cmd_ota,
+                    "ota_url": ota_url,
                     "request_count": item.get("request_count", 0)
                 }
 
-                if cmd_reset:
+                if cmd_reset or cmd_ota:
                     table.update_item(
                         Key={"device_id": device_id},
-                        UpdateExpression="SET cmd_reset_cycles = :f",
+                        UpdateExpression="SET cmd_reset_cycles = :f, cmd_ota_update = :f",
                         ExpressionAttributeValues={":f": False}
                     )
 

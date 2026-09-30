@@ -4,7 +4,9 @@
  */
 
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <WebServer.h>
@@ -27,6 +29,7 @@ unsigned long cycleCount = 0;
 bool isRunning = false;           
 bool hasLevel = true;             
 bool useLevelSensor = false;      
+unsigned long syncIntervalMs = AWS_SYNC_INTERVAL_MS;
 
 unsigned long lastStateChangeMs = 0;
 unsigned long lastAwsSyncMs = 0;
@@ -45,6 +48,7 @@ void handleCycleStateMachine();
 void syncWithAWS();
 void parseAWSResponse(String payload);
 void startWiFiPortal();
+void performHTTPUpdate(String otaUrl);
 
 void setup() {
     Serial.begin(115200);
@@ -93,7 +97,7 @@ void loop() {
     hasLevel = checkLevelSensor();
     handleCycleStateMachine();
 
-    if (millis() - lastAwsSyncMs >= AWS_SYNC_INTERVAL_MS) {
+    if (millis() - lastAwsSyncMs >= syncIntervalMs) {
         lastAwsSyncMs = millis();
         if (WiFi.status() == WL_CONNECTED) {
             syncWithAWS();
@@ -354,7 +358,43 @@ void parseAWSResponse(String payload) {
         }
     }
 
+    if (doc.containsKey("sync_interval_ms")) {
+        unsigned long newSync = doc["sync_interval_ms"].as<unsigned long>();
+        if (newSync >= 1000 && newSync <= 60000) {
+            syncIntervalMs = newSync;
+        }
+    }
+
+    if (doc.containsKey("cmd_ota_update") && doc["cmd_ota_update"].as<bool>() == true) {
+        String otaUrl = doc["ota_url"].as<String>();
+        if (otaUrl.length() > 5) {
+            Serial.printf("[OTA] Recibida orden de actualización desde: %s\n", otaUrl.c_str());
+            performHTTPUpdate(otaUrl);
+        }
+    }
+
     if (updated) {
         saveSettingsToNVS();
+    }
+}
+
+void performHTTPUpdate(String otaUrl) {
+    WiFiClientSecure client;
+    client.setInsecure(); // Permitir descargar binario OTA desde HTTPS
+
+    Serial.println("[OTA] Iniciando actualización de firmware por Wi-Fi...");
+    t_httpUpdate_return ret = httpUpdate.update(client, otaUrl);
+
+    switch (ret) {
+        case HTTP_UPDATE_FAILED:
+            Serial.printf("[OTA] Error de actualización (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+            break;
+        case HTTP_UPDATE_NO_UPDATES:
+            Serial.println("[OTA] No hay nuevas actualizaciones disponibles.");
+            break;
+        case HTTP_UPDATE_OK:
+            Serial.println("[OTA] ¡Firmware actualizado exitosamente! Reiniciando ESP32...");
+            ESP.restart();
+            break;
     }
 }
