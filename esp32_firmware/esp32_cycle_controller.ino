@@ -256,9 +256,11 @@ void handleCycleStateMachine() {
 }
 
 void syncWithAWS() {
+    WiFiClientSecure client;
+    client.setInsecure(); // Permitir handshake SSL HTTPS con AWS API Gateway
     HTTPClient http;
     String url = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
-    http.begin(url);
+    http.begin(client, url);
     http.addHeader("Content-Type", "application/json");
     http.addHeader("x-api-key", AWS_API_KEY);
 
