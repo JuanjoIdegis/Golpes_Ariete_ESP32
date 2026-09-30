@@ -156,8 +156,8 @@ def lambda_handler(event, context):
                 # Incrementar contador de peticiones de la API
                 table.update_item(
                     Key={"device_id": device_id},
-                    UpdateExpression="ADD request_count :inc",
-                    ExpressionAttributeValues={":inc": Decimal("1")}
+                    UpdateExpression="SET request_count = if_not_exists(request_count, :zero) + :inc",
+                    ExpressionAttributeValues={":zero": Decimal("0"), ":inc": Decimal("1")}
                 )
 
                 return {
@@ -178,10 +178,10 @@ def lambda_handler(event, context):
                 cycle_count = body.get("cycle_count", 0)
                 remaining_sec = body.get("remaining_sec", 0)
 
-                # Si target_running, target_time_on o target_time_off aún no existen en la tabla, inicializarlos con lo que reporta el ESP32
+                # Actualización de DynamoDB segura dividiendo SET y ADD en una expresión estándar
                 table.update_item(
                     Key={"device_id": device_id},
-                    UpdateExpression="SET #s = :s, device_name = if_not_exists(device_name, :dn), is_running = :r, target_running = if_not_exists(target_running, :r), has_level = :hl, use_sensor = :us, time_on = :ton, target_time_on = if_not_exists(target_time_on, :ton), time_off = :toff, target_time_off = if_not_exists(target_time_off, :toff), cycle_count = :cc, remaining_sec = :rem, last_seen = :ls ADD request_count :inc",
+                    UpdateExpression="SET #s = :s, device_name = if_not_exists(device_name, :dn), is_running = :r, target_running = if_not_exists(target_running, :r), has_level = :hl, use_sensor = :us, time_on = :ton, target_time_on = if_not_exists(target_time_on, :ton), time_off = :toff, target_time_off = if_not_exists(target_time_off, :toff), cycle_count = :cc, remaining_sec = :rem, last_seen = :ls, request_count = if_not_exists(request_count, :zero) + :inc",
                     ExpressionAttributeNames={"#s": "state"},
                     ExpressionAttributeValues={
                         ":s": state,
@@ -194,6 +194,7 @@ def lambda_handler(event, context):
                         ":cc": Decimal(str(cycle_count)),
                         ":rem": Decimal(str(remaining_sec)),
                         ":ls": current_timestamp,
+                        ":zero": Decimal("0"),
                         ":inc": Decimal("1")
                     }
                 )
