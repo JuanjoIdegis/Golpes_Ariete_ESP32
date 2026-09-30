@@ -62,8 +62,8 @@ def lambda_handler(event, context):
                 items = scan_res.get("Items", [])
                 for it in items:
                     last_seen = int(it.get("last_seen", 0))
-                    # Si last_seen existe y es mayor a cero, la telemetria esta activa
-                    it["is_online"] = (last_seen > 0)
+                    # El ESP32 envía telemetría cada 2-10s. Si no se ha visto en 20s, está OFFLINE
+                    it["is_online"] = (last_seen > 0 and (current_time - last_seen) <= 20)
                     it["server_time"] = current_time
                 return {
                     "statusCode": 200,
@@ -94,7 +94,7 @@ def lambda_handler(event, context):
             })
 
             last_seen = int(item.get("last_seen", 0))
-            item["is_online"] = (last_seen > 0)
+            item["is_online"] = (last_seen > 0 and (current_time - last_seen) <= 20)
             item["server_time"] = current_time
 
             return {
