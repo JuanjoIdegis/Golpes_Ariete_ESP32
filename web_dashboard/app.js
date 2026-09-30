@@ -191,6 +191,13 @@ function updateUI(data) {
         inputTimeOff.value = data.target_time_off || data.time_off || 5;
     }
 
+    const selectSyncInterval = document.getElementById("selectSyncInterval");
+    if (selectSyncInterval && document.activeElement !== selectSyncInterval) {
+        if (data.sync_interval_ms) {
+            selectSyncInterval.value = String(data.sync_interval_ms);
+        }
+    }
+
     // 5. Indicador de Estado del Relé
     const stateLabel = document.getElementById("stateLabel");
     const stateIconBg = document.getElementById("stateIconBg");
@@ -278,6 +285,7 @@ async function saveTimers(event) {
 
     const timeOnVal = parseInt(document.getElementById("inputTimeOn").value, 10);
     const timeOffVal = parseInt(document.getElementById("inputTimeOff").value, 10);
+    const syncIntervalVal = parseInt(document.getElementById("selectSyncInterval").value, 10) || 2000;
 
     if (isNaN(timeOnVal) || timeOnVal <= 0 || isNaN(timeOffVal) || timeOffVal <= 0) {
         alert("Por favor ingresa valores de tiempo válidos en segundos (mayores a 0).");
@@ -289,7 +297,8 @@ async function saveTimers(event) {
             client_type: "web",
             device_id: currentDeviceId,
             time_on: timeOnVal,
-            time_off: timeOffVal
+            time_off: timeOffVal,
+            sync_interval_ms: syncIntervalVal
         };
 
         // Actualización local inmediata de tiempos
