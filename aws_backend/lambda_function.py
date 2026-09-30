@@ -142,6 +142,12 @@ def lambda_handler(event, context):
                     expr_attr_names["#ota_u"] = "ota_url"
                     expr_attr_names["#ota_c"] = "cmd_ota_update"
 
+                if "target_running" in body or "is_running" in body:
+                    target_val = bool(body.get("target_running", body.get("is_running")))
+                    update_expr.append("#t_run = :t_run, is_running = :t_run")
+                    expr_attr_values[":t_run"] = target_val
+                    expr_attr_names["#t_run"] = "target_running"
+
                 if "cmd_reset_cycles" in body:
                     update_expr.append("#reset = :reset")
                     expr_attr_values[":reset"] = bool(body["cmd_reset_cycles"])
@@ -180,7 +186,7 @@ def lambda_handler(event, context):
                 cycle_count = body.get("cycle_count", 0)
                 remaining_sec = body.get("remaining_sec", 0)
 
-                # Actualización de DynamoDB segura dividiendo SET y ADD en una expresión estándar
+                # Actualización de DynamoDB: El ESP32 sólo actualiza su telemetría local (state, cycle_count, etc) sin machacar la orden target_running enviada por la Web
                 table.update_item(
                     Key={"device_id": device_id},
                     UpdateExpression="SET #s = :s, device_name = if_not_exists(device_name, :dn), is_running = :r, target_running = if_not_exists(target_running, :r), has_level = :hl, use_sensor = :us, time_on = :ton, target_time_on = if_not_exists(target_time_on, :ton), time_off = :toff, target_time_off = if_not_exists(target_time_off, :toff), cycle_count = :cc, remaining_sec = :rem, last_seen = :ls, request_count = if_not_exists(request_count, :zero) + :inc",
