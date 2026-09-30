@@ -54,7 +54,9 @@ void setup() {
     Serial.begin(115200);
     delay(500);
 
-    Serial.println("\n--- ESP32 Cycle Controller (AWS Cloud Client) ---");
+    Serial.println("\n=== ESP32 Cycle Controller v4.0 (text/plain fix) ===");
+    Serial.printf("=== Sync interval: %lu ms | Endpoint: %s\n", (unsigned long)AWS_SYNC_INTERVAL_MS, AWS_API_ENDPOINT);
+    Serial.println("====================================================");
 
     initHardware();
     loadSettingsFromNVS();
@@ -266,7 +268,7 @@ void syncWithAWS() {
     HTTPClient http;
     String url = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
     http.begin(client, url);
-    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Content-Type", "text/plain"); // text/plain evita pre-procesado del body en API Gateway HTTP v2
     http.addHeader("x-api-key", AWS_API_KEY);
 
     unsigned long remainingSec = 0;
