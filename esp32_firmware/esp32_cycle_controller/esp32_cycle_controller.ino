@@ -65,10 +65,15 @@ void setup() {
     String storedPass = preferences.getString("pass", WIFI_PASSWORD);
     preferences.end();
 
-    WiFi.mode(WIFI_STA);
+    // Iniciar siempre Punto de Acceso (AP) para poder reconfigurar Wi-Fi en cualquier momento
+    WiFi.mode(WIFI_AP_STA);
+    String apName = "Config-WiFi-" + deviceId;
+    WiFi.softAP(apName.c_str(), "12345678");
+
     WiFi.begin(storedSsid.c_str(), storedPass.c_str());
     Serial.print("Conectando a Wi-Fi: ");
     Serial.println(storedSsid);
+    Serial.printf("Punto de acceso propio activado: %s (IP AP: %s)\n", apName.c_str(), WiFi.softAPIP().toString().c_str());
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 15) {
@@ -82,10 +87,10 @@ void setup() {
         Serial.print("[Wi-Fi] IP Local: ");
         Serial.println(WiFi.localIP());
     } else {
-        Serial.println("\n[Wi-Fi] No se pudo conectar. Iniciando Portal Cautivo para cambiar Wi-Fi...");
-        startWiFiPortal();
+        Serial.println("\n[Wi-Fi] No se pudo conectar a la red router. El Portal Cautivo sigue disponible.");
     }
 
+    startWiFiPortal();
     lastStateChangeMs = millis();
 }
 
@@ -293,15 +298,17 @@ void syncWithAWS() {
     String requestBody;
     serializeJson(doc, requestBody);
 
+    Serial.println("[AWS] Enviando telemetría...");
     int httpResponseCode = http.POST(requestBody);
 
     if (httpResponseCode > 0) {
         String response = http.getString();
+        Serial.printf("[AWS OK] Respuesta recibida (Código %d): %s\n", httpResponseCode, response.c_str());
         if (httpResponseCode == 200) {
             parseAWSResponse(response);
         }
     } else {
-        Serial.printf("[AWS HTTP Error] Petición fallida: %s\n", http.errorToString(httpResponseCode).c_str());
+        Serial.printf("[AWS Error] Petición fallida: %s (código: %d)\n", http.errorToString(httpResponseCode).c_str(), httpResponseCode);
     }
 
     http.end();
