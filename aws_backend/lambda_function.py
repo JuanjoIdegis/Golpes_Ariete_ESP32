@@ -62,8 +62,8 @@ def lambda_handler(event, context):
                 items = scan_res.get("Items", [])
                 for it in items:
                     last_seen = int(it.get("last_seen", 0))
-                    # Un dispositivo se considera ONLINE si last_seen ha sido actualizado en la sesión activa
-                    it["is_online"] = (last_seen > 0) and ((current_time - last_seen) <= 600)
+                    # Si last_seen existe y es mayor a cero, la telemetria esta activa
+                    it["is_online"] = (last_seen > 0)
                     it["server_time"] = current_time
                 return {
                     "statusCode": 200,
@@ -94,7 +94,7 @@ def lambda_handler(event, context):
             })
 
             last_seen = int(item.get("last_seen", 0))
-            item["is_online"] = (last_seen > 0) and ((current_time - last_seen) <= 600)
+            item["is_online"] = (last_seen > 0)
             item["server_time"] = current_time
 
             return {
