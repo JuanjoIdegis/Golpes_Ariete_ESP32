@@ -430,6 +430,7 @@ void sendOTAProgressToAWS(int percent, String statusMsg) {
 void performHTTPUpdate(String otaUrl) {
     WiFiClientSecure client;
     client.setInsecure(); // Permitir descargar binario OTA desde HTTPS
+    httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); // Permitir redirecciones 301/302 de GitHub/AWS
 
     Serial.println("[OTA] Iniciando actualización de firmware por Wi-Fi...");
     sendOTAProgressToAWS(5, "Iniciando descarga...");
