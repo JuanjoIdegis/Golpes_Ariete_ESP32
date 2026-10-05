@@ -22,6 +22,7 @@ enum SystemState {
 
 // Configuración de Identificador de Dispositivo por Planta
 String deviceId = "esp32_01"; 
+String firmwareVer = "v4.1";
 
 SystemState currentState = STATE_STOPPED;
 unsigned long timeOnSec = 5;      
@@ -300,6 +301,7 @@ void syncWithAWS() {
     StaticJsonDocument<256> doc;
     doc["client_type"] = "esp32";
     doc["device_id"] = deviceId;
+    doc["firmware_ver"] = firmwareVer;
     doc["state"] = stateStr;
     doc["is_running"] = isRunning;
     doc["has_level"] = hasLevel;
@@ -401,22 +403,64 @@ void parseAWSResponse(String payload) {
     }
 }
 
+void sendOTAProgressToAWS(int percent, String statusMsg) {
+    WiFiClientSecure client;
+    client.setInsecure();
+    HTTPClient http;
+    String url = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
+    http.begin(client, url);
+    http.setTimeout(1500);
+    http.addHeader("Content-Type", "text/plain");
+    http.addHeader("x-api-key", AWS_API_KEY);
+
+    StaticJsonDocument<256> doc;
+    doc["client_type"] = "esp32";
+    doc["device_id"] = deviceId;
+    doc["firmware_ver"] = firmwareVer;
+    doc["state"] = "UPDATING_OTA";
+    doc["ota_progress"] = percent;
+    doc["ota_status"] = statusMsg;
+
+    String body;
+    serializeJson(doc, body);
+    http.POST(body);
+    http.end();
+}
+
 void performHTTPUpdate(String otaUrl) {
     WiFiClientSecure client;
     client.setInsecure(); // Permitir descargar binario OTA desde HTTPS
 
     Serial.println("[OTA] Iniciando actualización de firmware por Wi-Fi...");
+    sendOTAProgressToAWS(5, "Iniciando descarga...");
+
+    httpUpdate.onProgress([](int cur, int total) {
+        if (total > 0) {
+            int percent = (cur * 100) / total;
+            static int lastReported = -1;
+            if (percent >= lastReported + 25 || percent == 100) {
+                lastReported = percent;
+                Serial.printf("[OTA Progreso] %d%%\n", percent);
+                sendOTAProgressToAWS(percent, "Descargando paquetes...");
+            }
+        }
+    });
+
     t_httpUpdate_return ret = httpUpdate.update(client, otaUrl);
 
     switch (ret) {
         case HTTP_UPDATE_FAILED:
             Serial.printf("[OTA] Error de actualización (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+            sendOTAProgressToAWS(0, "Error en descarga");
             break;
         case HTTP_UPDATE_NO_UPDATES:
             Serial.println("[OTA] No hay nuevas actualizaciones disponibles.");
+            sendOTAProgressToAWS(0, "Sin nuevas versiones");
             break;
         case HTTP_UPDATE_OK:
             Serial.println("[OTA] ¡Firmware actualizado exitosamente! Reiniciando ESP32...");
+            sendOTAProgressToAWS(100, "¡Instalado! Reiniciando...");
+            delay(1000);
             ESP.restart();
             break;
     }

@@ -188,9 +188,13 @@ def lambda_handler(event, context):
                 remaining_sec = body.get("remaining_sec", 0)
 
                 # Actualización de DynamoDB: El ESP32 sólo actualiza su telemetría local (state, cycle_count, etc) sin machacar la orden target_running enviada por la Web
+                ota_prog = Decimal(str(body.get("ota_progress", 0)))
+                ota_stat = str(body.get("ota_status", ""))
+                firmware_ver = str(body.get("firmware_ver", "v4.0"))
+
                 table.update_item(
                     Key={"device_id": device_id},
-                    UpdateExpression="SET #s = :s, device_name = if_not_exists(device_name, :dn), is_running = :r, target_running = if_not_exists(target_running, :r), has_level = :hl, use_sensor = :us, time_on = :ton, target_time_on = if_not_exists(target_time_on, :ton), time_off = :toff, target_time_off = if_not_exists(target_time_off, :toff), cycle_count = :cc, remaining_sec = :rem, last_seen = :ls, request_count = if_not_exists(request_count, :zero) + :inc",
+                    UpdateExpression="SET #s = :s, device_name = if_not_exists(device_name, :dn), is_running = :r, target_running = if_not_exists(target_running, :r), has_level = :hl, use_sensor = :us, time_on = :ton, target_time_on = if_not_exists(target_time_on, :ton), time_off = :toff, target_time_off = if_not_exists(target_time_off, :toff), cycle_count = :cc, remaining_sec = :rem, last_seen = :ls, ota_progress = :op, ota_status = :os, firmware_ver = :fw, request_count = if_not_exists(request_count, :zero) + :inc",
                     ExpressionAttributeNames={"#s": "state"},
                     ExpressionAttributeValues={
                         ":s": state,
@@ -203,6 +207,9 @@ def lambda_handler(event, context):
                         ":cc": Decimal(str(cycle_count)),
                         ":rem": Decimal(str(remaining_sec)),
                         ":ls": current_timestamp,
+                        ":op": ota_prog,
+                        ":os": ota_stat,
+                        ":fw": firmware_ver,
                         ":zero": Decimal("0"),
                         ":inc": Decimal("1")
                     }

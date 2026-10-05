@@ -238,6 +238,39 @@ function updateUI(data) {
         btnStart.classList.remove("opacity-50", "cursor-not-allowed");
         btnStop.classList.add("opacity-50", "cursor-not-allowed");
     }
+
+    // 7. Versión de Firmware Activa en ESP32
+    const firmwareVerText = document.getElementById("firmwareVerText");
+    if (firmwareVerText && data.firmware_ver) {
+        firmwareVerText.textContent = data.firmware_ver;
+    }
+
+    // 8. Barra de Progreso en Vivo de descarga OTA
+    const otaProgressContainer = document.getElementById("otaProgressContainer");
+    const otaProgressBar = document.getElementById("otaProgressBar");
+    const otaPercentText = document.getElementById("otaPercentText");
+    const otaStatusText = document.getElementById("otaStatusText");
+
+    if (otaProgressContainer && (data.state === "UPDATING_OTA" || (data.ota_progress > 0 && data.ota_progress < 100))) {
+        otaProgressContainer.classList.remove("hidden");
+        const pct = Math.min(100, Math.max(0, parseInt(data.ota_progress || 0, 10)));
+        if (otaProgressBar) otaProgressBar.style.width = `${pct}%`;
+        if (otaPercentText) otaPercentText.textContent = `${pct}%`;
+        if (otaStatusText) {
+            const msg = data.ota_status || "Descargando paquetes de firmware...";
+            otaStatusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-purple-400"></i> <span>${msg}</span>`;
+        }
+    } else if (otaProgressContainer && data.ota_progress >= 100) {
+        otaProgressContainer.classList.remove("hidden");
+        if (otaProgressBar) otaProgressBar.style.width = `100%`;
+        if (otaPercentText) otaPercentText.textContent = `100%`;
+        if (otaStatusText) {
+            otaStatusText.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i> <span>¡Firmware instalado! Reiniciando ESP32...</span>`;
+        }
+        setTimeout(() => {
+            if (otaProgressContainer) otaProgressContainer.classList.add("hidden");
+        }, 8000);
+    }
 }
 
 // Cambiar estado Iniciar / Detener
