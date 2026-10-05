@@ -10,6 +10,7 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 #include <WebServer.h>
+#include <DNSServer.h>
 #include "config.h"
 
 enum SystemState {
@@ -36,6 +37,7 @@ unsigned long lastAwsSyncMs = 0;
 
 Preferences preferences;
 WebServer server(80);
+DNSServer dnsServer;
 bool apPortalActive = false;
 
 void initHardware();
@@ -98,6 +100,7 @@ void setup() {
 
 void loop() {
     if (apPortalActive) {
+        dnsServer.processNextRequest();
         server.handleClient();
     }
     
@@ -117,6 +120,9 @@ void startWiFiPortal() {
     WiFi.mode(WIFI_AP_STA);
     String apName = "Config-WiFi-" + deviceId;
     WiFi.softAP(apName.c_str(), "12345678");
+
+    // Iniciar servidor DNS cautivo en puerto 53 para redirigir cualquier dominio a 192.168.4.1
+    dnsServer.start(53, "*", WiFi.softAPIP());
 
     Serial.println("=======================================================");
     Serial.printf(" Portal de Configuración Wi-Fi Activo: %s\n", apName.c_str());
@@ -138,6 +144,11 @@ void startWiFiPortal() {
 </form></body></html>
 )rawliteral";
         server.send(200, "text/html", html);
+    });
+
+    server.onNotFound([]() {
+        server.sendHeader("Location", String("http://") + WiFi.softAPIP().toString(), true);
+        server.send(302, "text/plain", "");
     });
 
     server.on("/save_wifi", HTTP_POST, []() {
@@ -268,6 +279,7 @@ void syncWithAWS() {
     HTTPClient http;
     String url = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
     http.begin(client, url);
+    http.setTimeout(1500); // Max 1.5s de timeout para evitar congelar la máquina de estados del relé
     http.addHeader("Content-Type", "text/plain"); // text/plain evita pre-procesado del body en API Gateway HTTP v2
     http.addHeader("x-api-key", AWS_API_KEY);
 
