@@ -70,6 +70,9 @@ void setup() {
     String storedPass = preferences.getString("pass", WIFI_PASSWORD);
     preferences.end();
 
+    if (storedSsid.length() == 0) storedSsid = WIFI_SSID;
+    if (storedPass.length() == 0) storedPass = WIFI_PASSWORD;
+
     // Iniciar siempre Punto de Acceso (AP) para poder reconfigurar Wi-Fi en cualquier momento
     WiFi.mode(WIFI_AP_STA);
     WiFi.setAutoReconnect(true);
@@ -82,7 +85,7 @@ void setup() {
     Serial.printf("Punto de acceso propio activado: %s (IP AP: %s)\n", apName.c_str(), WiFi.softAPIP().toString().c_str());
 
     int attempts = 0;
-    while (WiFi.status() != WL_CONNECTED && attempts < 15) {
+    while (WiFi.status() != WL_CONNECTED && attempts < 20) {
         delay(500);
         Serial.print(".");
         attempts++;
@@ -118,7 +121,14 @@ void loop() {
             if (millis() - lastReconnectMs >= 10000) { // Reintentar cada 10s si cae la Wi-Fi
                 lastReconnectMs = millis();
                 Serial.println("[Wi-Fi] Intentando reconectar a la red...");
-                WiFi.reconnect();
+                WiFi.disconnect();
+                preferences.begin("wifi_config", true);
+                String sSsid = preferences.getString("ssid", WIFI_SSID);
+                String sPass = preferences.getString("pass", WIFI_PASSWORD);
+                preferences.end();
+                if (sSsid.length() == 0) sSsid = WIFI_SSID;
+                if (sPass.length() == 0) sPass = WIFI_PASSWORD;
+                WiFi.begin(sSsid.c_str(), sPass.c_str());
             }
         }
     }
