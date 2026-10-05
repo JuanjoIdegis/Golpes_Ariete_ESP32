@@ -22,7 +22,7 @@ enum SystemState {
 
 // Configuración de Identificador de Dispositivo por Planta
 String deviceId = "esp32_01"; 
-String firmwareVer = "v4.1";
+String firmwareVer = "v4.2";
 
 SystemState currentState = STATE_STOPPED;
 unsigned long timeOnSec = 5;      
@@ -72,6 +72,7 @@ void setup() {
 
     // Iniciar siempre Punto de Acceso (AP) para poder reconfigurar Wi-Fi en cualquier momento
     WiFi.mode(WIFI_AP_STA);
+    WiFi.setAutoReconnect(true);
     String apName = "Config-WiFi-" + deviceId;
     WiFi.softAP(apName.c_str(), "12345678");
 
@@ -112,6 +113,13 @@ void loop() {
         lastAwsSyncMs = millis();
         if (WiFi.status() == WL_CONNECTED) {
             syncWithAWS();
+        } else {
+            static unsigned long lastReconnectMs = 0;
+            if (millis() - lastReconnectMs >= 10000) { // Reintentar cada 10s si cae la Wi-Fi
+                lastReconnectMs = millis();
+                Serial.println("[Wi-Fi] Intentando reconectar a la red...");
+                WiFi.reconnect();
+            }
         }
     }
 }
