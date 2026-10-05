@@ -343,6 +343,50 @@ async function resetCycles() {
     }
 }
 
+// Despachar Orden de Actualización de Firmware por OTA al ESP32
+async function triggerOTA() {
+    const urlInput = document.getElementById("inputOtaUrl");
+    const otaUrl = urlInput ? urlInput.value.trim() : "";
+
+    if (!otaUrl || !otaUrl.startsWith("http")) {
+        alert("Por favor ingresa una URL válida (HTTP/HTTPS) que apunte al archivo .bin de firmware.");
+        return;
+    }
+
+    if (!confirm(`¿Deseas enviar la orden de actualización OTA al dispositivo (${currentDeviceId}) desde la URL:\n${otaUrl}?`)) {
+        return;
+    }
+
+    try {
+        const btn = document.getElementById("btnTriggerOta");
+        const originalText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Enviando orden OTA...</span>`;
+
+        const payload = {
+            client_type: "web",
+            device_id: currentDeviceId,
+            ota_url: otaUrl
+        };
+
+        await sendPostToAWS(payload);
+
+        btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> <span>¡Orden OTA enviada!</span>`;
+        alert(`¡Orden de actualización OTA enviada exitosamente a AWS!\nEn el próximo latido (5s), el ESP32 descargar e instalará el nuevo firmware.`);
+
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.innerHTML = originalText;
+            fetchSystemStatus();
+        }, 3000);
+
+    } catch (err) {
+        alert("Error al despachar orden OTA: " + err.message);
+        const btn = document.getElementById("btnTriggerOta");
+        if (btn) btn.disabled = false;
+    }
+}
+
 // Función auxiliar para realizar llamadas POST a AWS
 async function sendPostToAWS(payload) {
     const response = await fetch(AWS_API_BASE_URL, {
