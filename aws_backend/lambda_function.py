@@ -52,6 +52,25 @@ def lambda_handler(event, context):
 
     try:
         if http_method == "GET":
+            if params.get("download") == "firmware":
+                try:
+                    from firmware_data import FIRMWARE_B64
+                    return {
+                        "statusCode": 200,
+                        "headers": {
+                            "Content-Type": "application/octet-stream",
+                            "Content-Disposition": "attachment; filename=esp32_firmware.bin"
+                        },
+                        "isBase64Encoded": True,
+                        "body": FIRMWARE_B64
+                    }
+                except Exception as ex:
+                    return {
+                        "statusCode": 500,
+                        "headers": headers,
+                        "body": json.dumps({"error": f"Error cargando binario: {str(ex)}"})
+                    }
+
             target_device = params.get("device_id")
 
             current_time = int(time.time())
