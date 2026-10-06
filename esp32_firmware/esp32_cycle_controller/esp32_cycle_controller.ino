@@ -22,7 +22,7 @@ enum SystemState {
 
 // Configuración de Identificador de Dispositivo por Planta
 String deviceId = "esp32_01"; 
-String firmwareVer = "v4.4";
+String firmwareVer = "v4.5";
 
 SystemState currentState = STATE_STOPPED;
 unsigned long timeOnSec = 5;      
