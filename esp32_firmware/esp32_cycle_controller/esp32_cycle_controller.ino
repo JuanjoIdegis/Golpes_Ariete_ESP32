@@ -438,39 +438,52 @@ void sendOTAProgressToAWS(int percent, String statusMsg) {
 
 void performHTTPUpdate(String otaUrl) {
     WiFiClientSecure client;
-    client.setInsecure(); // Permitir descargar binario OTA desde HTTPS
-    httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); // Permitir redirecciones 301/302 de GitHub/AWS
+    client.setInsecure(); // Permitir HTTPS sin validación estricta de CA
+    HTTPClient http;
 
-    Serial.println("[OTA] Iniciando actualización de firmware por Wi-Fi...");
+    Serial.printf("[OTA] Descargando desde: %s\n", otaUrl.c_str());
     sendOTAProgressToAWS(5, "Iniciando descarga por Wi-Fi...");
 
-    httpUpdate.onProgress([](int cur, int total) {
-        if (total > 0) {
-            int percent = (cur * 100) / total;
-            static int lastPercentPrint = -1;
-            if (percent >= lastPercentPrint + 20) {
-                lastPercentPrint = percent;
-                Serial.printf("[OTA Progreso] %d%%\n", percent);
+    http.begin(client, otaUrl);
+    http.setTimeout(12000);
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
+    int httpCode = http.GET();
+    if (httpCode == HTTP_CODE_OK) {
+        int contentLength = http.getSize();
+        if (contentLength > 0) {
+            if (Update.begin(contentLength)) {
+                WiFiClient* stream = http.getStreamPtr();
+                size_t written = Update.writeStream(*stream);
+
+                if (written == (size_t)contentLength) {
+                    if (Update.end(true)) { // true para finalizar flasheo OK
+                        Serial.println("[OTA Exito] ¡Firmware flasheado correctamente!");
+                        sendOTAProgressToAWS(100, "¡Instalado con éxito! Reiniciando...");
+                        http.end();
+                        delay(1000);
+                        ESP.restart();
+                        return;
+                    } else {
+                        Serial.printf("[OTA Error] Error en Update.end(): %s\n", Update.errorString());
+                        sendOTAProgressToAWS(0, "Error al finalizar flasheo");
+                    }
+                } else {
+                    Serial.printf("[OTA Error] Bytes incompletos: %d / %d\n", (int)written, contentLength);
+                    sendOTAProgressToAWS(0, "Descarga incompleta");
+                }
+            } else {
+                Serial.println("[OTA Error] Memoria insuficiente para Update.begin()");
+                sendOTAProgressToAWS(0, "Espacio flash insuficiente");
             }
+        } else {
+            Serial.println("[OTA Error] Tamaño de contenido inválido (Content-Length)");
+            sendOTAProgressToAWS(0, "Tamaño de archivo inválido");
         }
-    });
-
-    t_httpUpdate_return ret = httpUpdate.update(client, otaUrl);
-
-    switch (ret) {
-        case HTTP_UPDATE_FAILED:
-            Serial.printf("[OTA Error] Código (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-            sendOTAProgressToAWS(0, "Error en descarga OTA");
-            break;
-        case HTTP_UPDATE_NO_UPDATES:
-            Serial.println("[OTA] No hay nuevas actualizaciones disponibles.");
-            sendOTAProgressToAWS(0, "Sin nuevas versiones");
-            break;
-        case HTTP_UPDATE_OK:
-            Serial.println("[OTA] ¡Firmware v4.4 actualizado exitosamente! Reiniciando ESP32...");
-            sendOTAProgressToAWS(100, "¡Instalado con éxito! Reiniciando...");
-            delay(1000);
-            ESP.restart();
-            break;
+    } else {
+        Serial.printf("[OTA Error] Error HTTP GET: %d (%s)\n", httpCode, http.errorToString(httpCode).c_str());
+        sendOTAProgressToAWS(0, "Error HTTP " + String(httpCode));
     }
+
+    http.end();
 }
