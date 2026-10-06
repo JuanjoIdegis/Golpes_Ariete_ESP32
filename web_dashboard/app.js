@@ -269,7 +269,9 @@ function updateUI(data) {
         }
         setTimeout(() => {
             if (otaProgressContainer) otaProgressContainer.classList.add("hidden");
-        }, 8000);
+        }, 5000);
+    } else if (otaProgressContainer) {
+        otaProgressContainer.classList.add("hidden");
     }
 }
 
