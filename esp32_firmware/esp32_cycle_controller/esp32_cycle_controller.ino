@@ -22,7 +22,7 @@ enum SystemState {
 
 // Configuración de Identificador de Dispositivo por Planta
 String deviceId = "esp32_01"; 
-String firmwareVer = "v4.3";
+String firmwareVer = "v4.4";
 
 SystemState currentState = STATE_STOPPED;
 unsigned long timeOnSec = 5;      
@@ -442,16 +442,15 @@ void performHTTPUpdate(String otaUrl) {
     httpUpdate.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS); // Permitir redirecciones 301/302 de GitHub/AWS
 
     Serial.println("[OTA] Iniciando actualización de firmware por Wi-Fi...");
-    sendOTAProgressToAWS(5, "Iniciando descarga...");
+    sendOTAProgressToAWS(5, "Iniciando descarga por Wi-Fi...");
 
     httpUpdate.onProgress([](int cur, int total) {
         if (total > 0) {
             int percent = (cur * 100) / total;
-            static int lastReported = -1;
-            if (percent >= lastReported + 25 || percent == 100) {
-                lastReported = percent;
+            static int lastPercentPrint = -1;
+            if (percent >= lastPercentPrint + 20) {
+                lastPercentPrint = percent;
                 Serial.printf("[OTA Progreso] %d%%\n", percent);
-                sendOTAProgressToAWS(percent, "Descargando paquetes...");
             }
         }
     });
@@ -460,16 +459,16 @@ void performHTTPUpdate(String otaUrl) {
 
     switch (ret) {
         case HTTP_UPDATE_FAILED:
-            Serial.printf("[OTA] Error de actualización (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
-            sendOTAProgressToAWS(0, "Error en descarga");
+            Serial.printf("[OTA Error] Código (%d): %s\n", httpUpdate.getLastError(), httpUpdate.getLastErrorString().c_str());
+            sendOTAProgressToAWS(0, "Error en descarga OTA");
             break;
         case HTTP_UPDATE_NO_UPDATES:
             Serial.println("[OTA] No hay nuevas actualizaciones disponibles.");
             sendOTAProgressToAWS(0, "Sin nuevas versiones");
             break;
         case HTTP_UPDATE_OK:
-            Serial.println("[OTA] ¡Firmware actualizado exitosamente! Reiniciando ESP32...");
-            sendOTAProgressToAWS(100, "¡Instalado! Reiniciando...");
+            Serial.println("[OTA] ¡Firmware v4.4 actualizado exitosamente! Reiniciando ESP32...");
+            sendOTAProgressToAWS(100, "¡Instalado con éxito! Reiniciando...");
             delay(1000);
             ESP.restart();
             break;
