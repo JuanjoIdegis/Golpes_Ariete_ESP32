@@ -22,7 +22,7 @@ enum SystemState {
 
 // Configuración de Identificador de Dispositivo por Planta
 String deviceId = "esp32_01"; 
-String firmwareVer = "v4.2";
+String firmwareVer = "v4.3";
 
 SystemState currentState = STATE_STOPPED;
 unsigned long timeOnSec = 5;      
@@ -118,17 +118,10 @@ void loop() {
             syncWithAWS();
         } else {
             static unsigned long lastReconnectMs = 0;
-            if (millis() - lastReconnectMs >= 10000) { // Reintentar cada 10s si cae la Wi-Fi
+            if (millis() - lastReconnectMs >= 10000) { // Reintentar cada 10s sin apagar el AP
                 lastReconnectMs = millis();
-                Serial.println("[Wi-Fi] Intentando reconectar a la red...");
-                WiFi.disconnect();
-                preferences.begin("wifi_config", true);
-                String sSsid = preferences.getString("ssid", WIFI_SSID);
-                String sPass = preferences.getString("pass", WIFI_PASSWORD);
-                preferences.end();
-                if (sSsid.length() == 0) sSsid = WIFI_SSID;
-                if (sPass.length() == 0) sPass = WIFI_PASSWORD;
-                WiFi.begin(sSsid.c_str(), sPass.c_str());
+                Serial.println("[Wi-Fi] Reintentando conexión con router...");
+                WiFi.reconnect();
             }
         }
     }
@@ -136,9 +129,7 @@ void loop() {
 
 void startWiFiPortal() {
     apPortalActive = true;
-    WiFi.mode(WIFI_AP_STA);
     String apName = "Config-WiFi-" + deviceId;
-    WiFi.softAP(apName.c_str(), "12345678");
 
     // Iniciar servidor DNS cautivo en puerto 53 para redirigir cualquier dominio a 192.168.4.1
     dnsServer.start(53, "*", WiFi.softAPIP());
