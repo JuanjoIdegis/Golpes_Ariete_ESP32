@@ -5,13 +5,13 @@ let currentDeviceId = "esp32_01";
 let registeredDevices = [];
 let currentData = {};
 
-const POLLING_INTERVAL_MS = 4000;
+const POLLING_INTERVAL_MS = 3000;
 
 document.addEventListener("DOMContentLoaded", () => {
     fetchDeviceList();
     fetchSystemStatus();
     setInterval(fetchSystemStatus, POLLING_INTERVAL_MS);
-    setInterval(fetchDeviceList, 20000);
+    setInterval(fetchDeviceList, 15000);
 });
 
 async function fetchDeviceList() {
@@ -50,7 +50,10 @@ function renderDeviceSelector() {
         select.appendChild(option);
     });
 
-    if (!select.dataset.userSelected) {
+    if (registeredDevices.some(d => d.device_id === previousValue)) {
+        select.value = previousValue;
+        currentDeviceId = previousValue;
+    } else if (!select.dataset.userSelected) {
         const onlineDev = registeredDevices.find(d => d.is_online);
         if (onlineDev) {
             currentDeviceId = onlineDev.device_id;
@@ -59,8 +62,10 @@ function renderDeviceSelector() {
             currentDeviceId = registeredDevices[0].device_id;
             select.value = currentDeviceId;
         }
-    } else if (registeredDevices.some(d => d.device_id === previousValue)) {
-        select.value = previousValue;
+    } else if (registeredDevices.length > 0) {
+        currentDeviceId = registeredDevices[0].device_id;
+        select.value = currentDeviceId;
+        delete select.dataset.userSelected;
     }
 }
 
@@ -98,6 +103,11 @@ async function editDeviceName() {
 }
 
 async function fetchSystemStatus() {
+    const select = document.getElementById("deviceSelect");
+    if (select && select.value) {
+        currentDeviceId = select.value;
+    }
+
     try {
         const response = await fetch(`${AWS_API_BASE_URL}&device_id=${currentDeviceId}`, {
             method: "GET",
@@ -127,7 +137,7 @@ function formatTime(seconds) {
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = seconds % 60;
-    return `${h}h ${m}m ${s}s`;
+    return `${h}h ${m}m ${s}`;
 }
 
 function updateUI(data) {
@@ -331,6 +341,10 @@ function updateConnectionBadge(isOnline) {
 
 async function sendCommandPayload(cmdPayload) {
     try {
+        const select = document.getElementById("deviceSelect");
+        if (select && select.value) {
+            currentDeviceId = select.value;
+        }
         const payload = {
             client_type: "web",
             device_id: currentDeviceId,
@@ -348,6 +362,9 @@ async function sendCommandPayload(cmdPayload) {
 }
 
 function setAriete1Running(isRunning) {
+    const select = document.getElementById("deviceSelect");
+    if (select && select.value) currentDeviceId = select.value;
+
     if (!currentData.ariete_1) currentData.ariete_1 = {};
     currentData.ariete_1.is_running = isRunning;
     currentData.ariete_1.state = isRunning ? "ON" : "STOPPED";
@@ -364,11 +381,16 @@ function saveAriete1Config() {
     const toff = parseInt(document.getElementById("a1_timeOff").value) || 5;
 
     sendCommandPayload({
-        cmd_ariete_1: { time_on: ton, time_off: toff }
+        cmd_ariete_1: { time_on: ton, time_off: toff },
+        time_on: ton,
+        time_off: toff
     });
 }
 
 function setPolarity1Running(isRunning) {
+    const select = document.getElementById("deviceSelect");
+    if (select && select.value) currentDeviceId = select.value;
+
     if (!currentData.polarity_1) currentData.polarity_1 = {};
     currentData.polarity_1.is_running = isRunning;
     currentData.polarity_1.state = isRunning ? "POLARITY_A" : "STOPPED";
@@ -410,6 +432,9 @@ function savePolarity1Config() {
 }
 
 function setPolarity2Running(isRunning) {
+    const select = document.getElementById("deviceSelect");
+    if (select && select.value) currentDeviceId = select.value;
+
     if (!currentData.polarity_2) currentData.polarity_2 = {};
     currentData.polarity_2.is_running = isRunning;
     currentData.polarity_2.state = isRunning ? "POLARITY_A" : "STOPPED";
@@ -421,17 +446,28 @@ function setPolarity2Running(isRunning) {
 }
 
 async function deleteCurrentDevice() {
-    if (!currentDeviceId) return;
-    if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el dispositivo (${currentDeviceId}) de AWS?`)) {
+    const select = document.getElementById("deviceSelect");
+    const targetId = (select && select.value) ? select.value : currentDeviceId;
+
+    if (!targetId) return;
+    if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el dispositivo (${targetId}) de AWS?`)) {
         return;
     }
     try {
-        await sendCommandPayload({
-            cmd_delete_device: true,
-            target_device_id: currentDeviceId
+        await fetch(AWS_API_BASE_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                client_type: "web",
+                device_id: targetId,
+                cmd_delete_device: true,
+                target_device_id: targetId
+            })
         });
-        alert(`Dispositivo ${currentDeviceId} eliminado exitosamente.`);
-        fetchDeviceList();
+        if (select) delete select.dataset.userSelected;
+        alert(`Dispositivo ${targetId} eliminado exitosamente de AWS.`);
+        await fetchDeviceList();
+        fetchSystemStatus();
     } catch (e) {
         alert("Error al eliminar dispositivo: " + e.message);
     }
@@ -462,6 +498,9 @@ function savePolarity2Config() {
 
 // Despachar Orden de Actualización de Firmware por OTA al ESP32
 async function triggerOTA() {
+    const select = document.getElementById("deviceSelect");
+    if (select && select.value) currentDeviceId = select.value;
+
     const urlInput = document.getElementById("inputOtaUrl");
     const otaUrl = urlInput ? urlInput.value.trim() : "";
 
