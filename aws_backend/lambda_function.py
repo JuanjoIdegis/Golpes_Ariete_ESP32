@@ -95,6 +95,15 @@ def lambda_handler(event, context):
             device_name = body.get("device_name", f"Dispositivo {device_id.upper()}")
 
             if client_type == "web":
+                if body.get("cmd_delete_device") or body.get("cmd_delete"):
+                    target_id = str(body.get("target_device_id", device_id))
+                    table.delete_item(Key={"device_id": target_id})
+                    return {
+                        "statusCode": 200,
+                        "headers": headers,
+                        "body": json.dumps({"status": "success", "message": f"Dispositivo {target_id} eliminado exitosamente"})
+                    }
+
                 update_expr = []
                 expr_attr_values = {}
                 expr_attr_names = {}
@@ -108,16 +117,25 @@ def lambda_handler(event, context):
                     update_expr.append("#cmd_a1 = :cmd_a1")
                     expr_attr_values[":cmd_a1"] = body["cmd_ariete_1"]
                     expr_attr_names["#cmd_a1"] = "cmd_ariete_1"
+                    if isinstance(body["cmd_ariete_1"], dict) and "is_running" in body["cmd_ariete_1"]:
+                        update_expr.append("ariete_1.is_running = :a1_run")
+                        expr_attr_values[":a1_run"] = bool(body["cmd_ariete_1"]["is_running"])
 
                 if "cmd_polarity_1" in body:
                     update_expr.append("#cmd_p1 = :cmd_p1")
                     expr_attr_values[":cmd_p1"] = body["cmd_polarity_1"]
                     expr_attr_names["#cmd_p1"] = "cmd_polarity_1"
+                    if isinstance(body["cmd_polarity_1"], dict) and "is_running" in body["cmd_polarity_1"]:
+                        update_expr.append("polarity_1.is_running = :p1_run")
+                        expr_attr_values[":p1_run"] = bool(body["cmd_polarity_1"]["is_running"])
 
                 if "cmd_polarity_2" in body:
                     update_expr.append("#cmd_p2 = :cmd_p2")
                     expr_attr_values[":cmd_p2"] = body["cmd_polarity_2"]
                     expr_attr_names["#cmd_p2"] = "cmd_polarity_2"
+                    if isinstance(body["cmd_polarity_2"], dict) and "is_running" in body["cmd_polarity_2"]:
+                        update_expr.append("polarity_2.is_running = :p2_run")
+                        expr_attr_values[":p2_run"] = bool(body["cmd_polarity_2"]["is_running"])
 
                 # Legacy Ariete single-channel fallback
                 if "time_on" in body:

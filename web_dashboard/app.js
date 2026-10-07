@@ -348,6 +348,11 @@ async function sendCommandPayload(cmdPayload) {
 }
 
 function setAriete1Running(isRunning) {
+    if (!currentData.ariete_1) currentData.ariete_1 = {};
+    currentData.ariete_1.is_running = isRunning;
+    currentData.ariete_1.state = isRunning ? "ON" : "STOPPED";
+    updateUI(currentData);
+
     sendCommandPayload({
         cmd_ariete_1: { is_running: isRunning },
         target_running: isRunning
@@ -364,6 +369,11 @@ function saveAriete1Config() {
 }
 
 function setPolarity1Running(isRunning) {
+    if (!currentData.polarity_1) currentData.polarity_1 = {};
+    currentData.polarity_1.is_running = isRunning;
+    currentData.polarity_1.state = isRunning ? "POLARITY_A" : "STOPPED";
+    updateUI(currentData);
+
     sendCommandPayload({
         cmd_polarity_1: { is_running: isRunning }
     });
@@ -400,9 +410,31 @@ function savePolarity1Config() {
 }
 
 function setPolarity2Running(isRunning) {
+    if (!currentData.polarity_2) currentData.polarity_2 = {};
+    currentData.polarity_2.is_running = isRunning;
+    currentData.polarity_2.state = isRunning ? "POLARITY_A" : "STOPPED";
+    updateUI(currentData);
+
     sendCommandPayload({
         cmd_polarity_2: { is_running: isRunning }
     });
+}
+
+async function deleteCurrentDevice() {
+    if (!currentDeviceId) return;
+    if (!confirm(`¿Estás seguro de que deseas eliminar permanentemente el dispositivo (${currentDeviceId}) de AWS?`)) {
+        return;
+    }
+    try {
+        await sendCommandPayload({
+            cmd_delete_device: true,
+            target_device_id: currentDeviceId
+        });
+        alert(`Dispositivo ${currentDeviceId} eliminado exitosamente.`);
+        fetchDeviceList();
+    } catch (e) {
+        alert("Error al eliminar dispositivo: " + e.message);
+    }
 }
 
 function resetPolarity2Totals() {
