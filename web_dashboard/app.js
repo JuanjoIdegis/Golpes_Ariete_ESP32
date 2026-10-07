@@ -131,10 +131,18 @@ function updateUI(data) {
     if (fwElem) fwElem.textContent = data.firmware_ver || "v5.0";
 
     // Sensor nivel
+    const chkUseSensor = document.getElementById("chkUseSensor");
+    if (chkUseSensor && data.use_sensor !== undefined) {
+        chkUseSensor.checked = data.use_sensor;
+    }
+
     const levelText = document.getElementById("levelText");
     const levelBadge = document.getElementById("levelBadge");
     if (levelText && levelBadge) {
-        if (data.has_level !== false) {
+        if (data.use_sensor === false) {
+            levelText.textContent = "Sensor: Desactivado";
+            levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700";
+        } else if (data.has_level !== false) {
             levelText.textContent = "Nivel: OK";
             levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
         } else {
@@ -438,5 +446,17 @@ async function triggerOTA() {
         alert("Error al despachar orden OTA: " + err.message);
         const btn = document.getElementById("btnTriggerOta");
         if (btn) btn.disabled = false;
+    }
+}
+
+async function toggleSensorSetting() {
+    const chkUseSensor = document.getElementById("chkUseSensor");
+    if (!chkUseSensor) return;
+    try {
+        await sendCommandPayload({
+            use_sensor: chkUseSensor.checked
+        });
+    } catch (e) {
+        console.error("Error cambiando uso de sensor:", e);
     }
 }
