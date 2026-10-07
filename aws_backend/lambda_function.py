@@ -131,34 +131,32 @@ def lambda_handler(event, context):
                     update_expr.append("#cmd_a1 = :cmd_a1")
                     expr_attr_values[":cmd_a1"] = body["cmd_ariete_1"]
                     expr_attr_names["#cmd_a1"] = "cmd_ariete_1"
-                    if isinstance(body["cmd_ariete_1"], dict) and "is_running" in body["cmd_ariete_1"]:
-                        val = bool(body["cmd_ariete_1"]["is_running"])
-                        update_expr.append("is_running = :a1_run")
-                        update_expr.append("#t_run = :a1_run")
-                        expr_attr_values[":a1_run"] = val
-                        expr_attr_names["#t_run"] = "target_running"
 
                 if "cmd_polarity_1" in body:
                     update_expr.append("#cmd_p1 = :cmd_p1")
                     expr_attr_values[":cmd_p1"] = body["cmd_polarity_1"]
                     expr_attr_names["#cmd_p1"] = "cmd_polarity_1"
-                    if isinstance(body["cmd_polarity_1"], dict) and "is_running" in body["cmd_polarity_1"]:
-                        val = bool(body["cmd_polarity_1"]["is_running"])
-                        update_expr.append("is_running = :p1_run")
-                        update_expr.append("#t_run = :p1_run")
-                        expr_attr_values[":p1_run"] = val
-                        expr_attr_names["#t_run"] = "target_running"
 
                 if "cmd_polarity_2" in body:
                     update_expr.append("#cmd_p2 = :cmd_p2")
                     expr_attr_values[":cmd_p2"] = body["cmd_polarity_2"]
                     expr_attr_names["#cmd_p2"] = "cmd_polarity_2"
-                    if isinstance(body["cmd_polarity_2"], dict) and "is_running" in body["cmd_polarity_2"]:
-                        val = bool(body["cmd_polarity_2"]["is_running"])
-                        update_expr.append("is_running = :p2_run")
-                        update_expr.append("#t_run = :p2_run")
-                        expr_attr_values[":p2_run"] = val
-                        expr_attr_names["#t_run"] = "target_running"
+
+                run_val = None
+                if isinstance(body.get("cmd_ariete_1"), dict) and "is_running" in body["cmd_ariete_1"]:
+                    run_val = bool(body["cmd_ariete_1"]["is_running"])
+                elif isinstance(body.get("cmd_polarity_1"), dict) and "is_running" in body["cmd_polarity_1"]:
+                    run_val = bool(body["cmd_polarity_1"]["is_running"])
+                elif isinstance(body.get("cmd_polarity_2"), dict) and "is_running" in body["cmd_polarity_2"]:
+                    run_val = bool(body["cmd_polarity_2"]["is_running"])
+                elif "target_running" in body or "is_running" in body:
+                    run_val = bool(body.get("target_running", body.get("is_running")))
+
+                if run_val is not None:
+                    update_expr.append("is_running = :run_val")
+                    update_expr.append("#t_run = :run_val")
+                    expr_attr_values[":run_val"] = run_val
+                    expr_attr_names["#t_run"] = "target_running"
 
                 if "use_sensor" in body:
                     update_expr.append("use_sensor = :u_sens")
@@ -184,12 +182,6 @@ def lambda_handler(event, context):
                     expr_attr_values[":ota_c"] = True
                     expr_attr_names["#ota_u"] = "ota_url"
                     expr_attr_names["#ota_c"] = "cmd_ota_update"
-
-                if ("target_running" in body or "is_running" in body) and "cmd_ariete_1" not in body and "cmd_polarity_1" not in body and "cmd_polarity_2" not in body:
-                    target_val = bool(body.get("target_running", body.get("is_running")))
-                    update_expr.append("#t_run = :t_run, is_running = :t_run")
-                    expr_attr_values[":t_run"] = target_val
-                    expr_attr_names["#t_run"] = "target_running"
 
                 if "cmd_reset_cycles" in body:
                     update_expr.append("#reset = :reset")
