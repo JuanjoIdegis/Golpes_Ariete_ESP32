@@ -10,6 +10,7 @@
 #include <ArduinoJson.h>
 #include <WebServer.h>
 #include <DNSServer.h>
+#include <esp_mac.h>
 #include "config.h"
 
 enum PolarityState {
@@ -390,7 +391,7 @@ void loadSettingsFromNVS() {
         deviceId = savedId;
     } else {
         uint8_t mac[6];
-        WiFi.macAddress(mac);
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
         char autoId[32];
         snprintf(autoId, sizeof(autoId), "esp32_%02x%02x", mac[4], mac[5]);
         deviceId = String(autoId);

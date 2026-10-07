@@ -135,7 +135,9 @@ function updateUI(data) {
 
     // Versión firmware
     const fwElem = document.getElementById("firmwareVerText");
-    if (fwElem) fwElem.textContent = data.firmware_ver || "v5.0";
+    if (fwElem) fwElem.textContent = data.firmware_ver || "v5.1";
+    const footerFw = document.getElementById("footerFwVerText");
+    if (footerFw) footerFw.textContent = data.firmware_ver || "v5.1";
 
     // Nombre Ensayo / Prueba
     const inputDevName = document.getElementById("inputDeviceName");
