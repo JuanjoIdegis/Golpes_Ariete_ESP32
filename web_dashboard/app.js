@@ -174,7 +174,7 @@ function updateUI(data) {
     if (a1_cyc) a1_cyc.textContent = a1.cycle_count || 0;
 
     // 2. CANAL POLARIDAD 1
-    const p1 = data.polarity_1 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0 };
+    const p1 = data.polarity_1 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0, total_sec_a: 0, total_sec_b: 0, total_sec_sum: 0 };
     const p1_badge = document.getElementById("p1_statusBadge");
     if (p1_badge) {
         if (p1.state === "POLARITY_A") {
@@ -198,8 +198,15 @@ function updateUI(data) {
     const p1_cyc = document.getElementById("p1_cycleCount");
     if (p1_cyc) p1_cyc.textContent = p1.cycle_count || 0;
 
+    const p1_totA = document.getElementById("p1_totalA");
+    if (p1_totA) p1_totA.textContent = formatHoursMinutes(p1.total_sec_a);
+    const p1_totB = document.getElementById("p1_totalB");
+    if (p1_totB) p1_totB.textContent = formatHoursMinutes(p1.total_sec_b);
+    const p1_totSum = document.getElementById("p1_totalSum");
+    if (p1_totSum) p1_totSum.textContent = formatHoursMinutes(p1.total_sec_sum || ((p1.total_sec_a || 0) + (p1.total_sec_b || 0)));
+
     // 3. CANAL POLARIDAD 2
-    const p2 = data.polarity_2 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0 };
+    const p2 = data.polarity_2 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0, total_sec_a: 0, total_sec_b: 0, total_sec_sum: 0 };
     const p2_badge = document.getElementById("p2_statusBadge");
     if (p2_badge) {
         if (p2.state === "POLARITY_A") {
@@ -222,6 +229,26 @@ function updateUI(data) {
 
     const p2_cyc = document.getElementById("p2_cycleCount");
     if (p2_cyc) p2_cyc.textContent = p2.cycle_count || 0;
+
+    const p2_totA = document.getElementById("p2_totalA");
+    if (p2_totA) p2_totA.textContent = formatHoursMinutes(p2.total_sec_a);
+    const p2_totB = document.getElementById("p2_totalB");
+    if (p2_totB) p2_totB.textContent = formatHoursMinutes(p2.total_sec_b);
+    const p2_totSum = document.getElementById("p2_totalSum");
+    if (p2_totSum) p2_totSum.textContent = formatHoursMinutes(p2.total_sec_sum || ((p2.total_sec_a || 0) + (p2.total_sec_b || 0)));
+}
+
+function formatHoursMinutes(seconds) {
+    if (!seconds || seconds <= 0) return "0h 0m";
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}m ${s}s`;
+    }
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    return `${h}h ${m}m`;
 }
 
 function updateConnectionBadge(isOnline) {
@@ -280,6 +307,14 @@ function setPolarity1Running(isRunning) {
     });
 }
 
+function resetPolarity1Totals() {
+    if (confirm("¿Estás seguro de que deseas resetear las horas acumuladas de la Polaridad 1?")) {
+        sendCommandPayload({
+            cmd_polarity_1: { reset_totals: true }
+        });
+    }
+}
+
 function convertToSeconds(value, unit) {
     const val = parseInt(value) || 1;
     if (unit === "hours") return val * 3600;
@@ -306,6 +341,14 @@ function setPolarity2Running(isRunning) {
     sendCommandPayload({
         cmd_polarity_2: { is_running: isRunning }
     });
+}
+
+function resetPolarity2Totals() {
+    if (confirm("¿Estás seguro de que deseas resetear las horas acumuladas de la Polaridad 2?")) {
+        sendCommandPayload({
+            cmd_polarity_2: { reset_totals: true }
+        });
+    }
 }
 
 function savePolarity2Config() {

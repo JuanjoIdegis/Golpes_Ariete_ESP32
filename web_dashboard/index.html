@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ESP32 v5.0 - Control Multi-Canal Ariete & Polaridad</title>
+    <title>ESP32 v5.1 - Control Multi-Canal Ariete & Polaridad</title>
     <!-- Tailwind CSS desde CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- FontAwesome para Iconos -->
@@ -18,8 +18,8 @@
                 <i class="fa-solid fa-microchip text-2xl text-white"></i>
             </div>
             <div>
-                <h1 class="text-xl sm:text-2xl font-bold tracking-wide">Controlador Multi-Canal ESP32 v5.0</h1>
-                <p class="text-xs text-slate-400">Golpes Ariete & Inversión de Polaridad Dual</p>
+                <h1 class="text-xl sm:text-2xl font-bold tracking-wide">Controlador Multi-Canal ESP32 v5.1</h1>
+                <p class="text-xs text-slate-400">Golpes Ariete & Inversión de Polaridad Dual con Horas Acumuladas</p>
             </div>
         </div>
 
@@ -51,7 +51,7 @@
             <!-- Badge Firmware -->
             <div id="firmwareBadge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 <i class="fa-solid fa-code-branch text-xs"></i>
-                <span><span id="firmwareVerText">v5.0</span></span>
+                <span><span id="firmwareVerText">v5.1</span></span>
             </div>
         </div>
     </header>
@@ -140,8 +140,8 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <!-- Tiempos -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <!-- Tiempos Programados -->
                 <div class="space-y-3 bg-slate-900/60 p-4 rounded-xl border border-slate-700/40">
                     <div>
                         <label class="block text-xs text-slate-400 font-semibold mb-1">Tiempo Polaridad A (Directa)</label>
@@ -156,7 +156,7 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs text-slate-400 font-semibold mb-1">Tiempo Muerto Pausa (Deadband)</label>
+                        <label class="block text-xs text-slate-400 font-semibold mb-1">Pausa (Deadband)</label>
                         <div class="flex space-x-2">
                             <input type="number" id="p1_timeDead" min="1" value="3" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-white font-bold">
                             <span class="p-2 bg-slate-700 text-slate-300 rounded-lg text-xs flex items-center font-bold">Seg</span>
@@ -180,10 +180,30 @@
                     </button>
                 </div>
 
-                <!-- Estado & Contador -->
+                <!-- Horas Acumuladas por Polaridad -->
+                <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40 flex flex-col justify-between text-left space-y-2">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-700 pb-1">Horas Acumuladas</h3>
+                    <div>
+                        <span class="text-xs text-emerald-400 block font-semibold">🟢 Polaridad A (Directa):</span>
+                        <span id="p1_totalA" class="text-base font-extrabold text-white">0h 0m</span>
+                    </div>
+                    <div>
+                        <span class="text-xs text-blue-400 block font-semibold">🔵 Polaridad B (Inversa):</span>
+                        <span id="p1_totalB" class="text-base font-extrabold text-white">0h 0m</span>
+                    </div>
+                    <div class="border-t border-slate-700 pt-2">
+                        <span class="text-xs text-purple-300 block font-bold">⚡ Total Acumulado (A + B):</span>
+                        <span id="p1_totalSum" class="text-lg font-black text-purple-400">0h 0m</span>
+                    </div>
+                    <button onclick="resetPolarity1Totals()" class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs font-semibold rounded border border-slate-700">
+                        Resetear Horas
+                    </button>
+                </div>
+
+                <!-- Estado Actual & Ciclos -->
                 <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40 flex flex-col justify-between text-center">
                     <div>
-                        <span class="text-xs text-slate-400 block mb-1">Tiempo Restante Estado</span>
+                        <span class="text-xs text-slate-400 block mb-1">Restante Estado Activo</span>
                         <span id="p1_remTime" class="text-2xl font-black text-purple-400">-- s</span>
                     </div>
                     <div class="my-2 border-t border-slate-700/60 pt-2">
@@ -195,10 +215,10 @@
                 <!-- Botones Control -->
                 <div class="flex flex-col justify-between space-y-2">
                     <button onclick="setPolarity1Running(true)" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-xl text-white shadow-lg transition">
-                        <i class="fa-solid fa-play mr-2"></i> INICIAR POLARIDAD 1
+                        <i class="fa-solid fa-play mr-2"></i> INICIAR P1
                     </button>
                     <button onclick="setPolarity1Running(false)" class="w-full py-3 bg-rose-600 hover:bg-rose-500 font-bold rounded-xl text-white shadow-lg transition">
-                        <i class="fa-solid fa-square mr-2"></i> DETENER POLARIDAD 1
+                        <i class="fa-solid fa-square mr-2"></i> DETENER P1
                     </button>
                 </div>
             </div>
@@ -222,8 +242,8 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <!-- Tiempos -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <!-- Tiempos Programados -->
                 <div class="space-y-3 bg-slate-900/60 p-4 rounded-xl border border-slate-700/40">
                     <div>
                         <label class="block text-xs text-slate-400 font-semibold mb-1">Tiempo Polaridad A (Directa)</label>
@@ -238,7 +258,7 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs text-slate-400 font-semibold mb-1">Tiempo Muerto Pausa (Deadband)</label>
+                        <label class="block text-xs text-slate-400 font-semibold mb-1">Pausa (Deadband)</label>
                         <div class="flex space-x-2">
                             <input type="number" id="p2_timeDead" min="1" value="3" class="w-full bg-slate-800 border border-slate-700 rounded-lg p-2 text-white font-bold">
                             <span class="p-2 bg-slate-700 text-slate-300 rounded-lg text-xs flex items-center font-bold">Seg</span>
@@ -262,10 +282,30 @@
                     </button>
                 </div>
 
-                <!-- Estado & Contador -->
+                <!-- Horas Acumuladas por Polaridad -->
+                <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40 flex flex-col justify-between text-left space-y-2">
+                    <h3 class="text-xs font-bold text-slate-400 uppercase tracking-wider border-b border-slate-700 pb-1">Horas Acumuladas</h3>
+                    <div>
+                        <span class="text-xs text-emerald-400 block font-semibold">🟢 Polaridad A (Directa):</span>
+                        <span id="p2_totalA" class="text-base font-extrabold text-white">0h 0m</span>
+                    </div>
+                    <div>
+                        <span class="text-xs text-cyan-400 block font-semibold">🔵 Polaridad B (Inversa):</span>
+                        <span id="p2_totalB" class="text-base font-extrabold text-white">0h 0m</span>
+                    </div>
+                    <div class="border-t border-slate-700 pt-2">
+                        <span class="text-xs text-cyan-300 block font-bold">⚡ Total Acumulado (A + B):</span>
+                        <span id="p2_totalSum" class="text-lg font-black text-cyan-400">0h 0m</span>
+                    </div>
+                    <button onclick="resetPolarity2Totals()" class="py-1 px-2 bg-slate-800 hover:bg-slate-700 text-slate-400 text-xs font-semibold rounded border border-slate-700">
+                        Resetear Horas
+                    </button>
+                </div>
+
+                <!-- Estado Actual & Ciclos -->
                 <div class="bg-slate-900/60 p-4 rounded-xl border border-slate-700/40 flex flex-col justify-between text-center">
                     <div>
-                        <span class="text-xs text-slate-400 block mb-1">Tiempo Restante Estado</span>
+                        <span class="text-xs text-slate-400 block mb-1">Restante Estado Activo</span>
                         <span id="p2_remTime" class="text-2xl font-black text-cyan-400">-- s</span>
                     </div>
                     <div class="my-2 border-t border-slate-700/60 pt-2">
@@ -277,10 +317,10 @@
                 <!-- Botones Control -->
                 <div class="flex flex-col justify-between space-y-2">
                     <button onclick="setPolarity2Running(true)" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 font-bold rounded-xl text-white shadow-lg transition">
-                        <i class="fa-solid fa-play mr-2"></i> INICIAR POLARIDAD 2
+                        <i class="fa-solid fa-play mr-2"></i> INICIAR P2
                     </button>
                     <button onclick="setPolarity2Running(false)" class="w-full py-3 bg-rose-600 hover:bg-rose-500 font-bold rounded-xl text-white shadow-lg transition">
-                        <i class="fa-solid fa-square mr-2"></i> DETENER POLARIDAD 2
+                        <i class="fa-solid fa-square mr-2"></i> DETENER P2
                     </button>
                 </div>
             </div>
