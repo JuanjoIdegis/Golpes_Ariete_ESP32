@@ -24,7 +24,13 @@ def lambda_handler(event, context):
     }
 
     try:
-        http_method = event.get("httpMethod", "GET")
+        http_method = event.get("httpMethod") or event.get("requestContext", {}).get("http", {}).get("method")
+        if not http_method:
+            if "client_type" in event or "cmd_ariete_1" in event or "cmd_polarity_1" in event or "cmd_polarity_2" in event or "cmd_delete_device" in event or "target_running" in event:
+                http_method = "POST"
+            else:
+                http_method = "GET"
+
         if http_method == "OPTIONS":
             return {"statusCode": 200, "headers": headers, "body": ""}
 
@@ -87,8 +93,16 @@ def lambda_handler(event, context):
             }
 
         elif http_method == "POST":
-            body_str = event.get("body", "{}")
-            body = json.loads(body_str) if body_str else {}
+            if "body" in event:
+                body_raw = event.get("body")
+                if isinstance(body_raw, str):
+                    body = json.loads(body_raw) if body_raw else {}
+                elif isinstance(body_raw, dict):
+                    body = body_raw
+                else:
+                    body = {}
+            else:
+                body = event if isinstance(event, dict) else {}
             
             client_type = body.get("client_type", "esp32")
             device_id = body.get("device_id", "esp32_01")
@@ -283,12 +297,22 @@ def lambda_handler(event, context):
                 if cmd_reset: res_payload["cmd_reset_cycles"] = cmd_reset
 
                 clear_expr = []
-                clear_vals = {":f": False}
-                if cmd_reset: clear_expr.append("cmd_reset_cycles = :f")
-                if cmd_ota: clear_expr.append("cmd_ota_update = :f")
-                if cmd_a1: clear_expr.append("cmd_ariete_1 = :null"); clear_vals[":null"] = None
-                if cmd_p1: clear_expr.append("cmd_polarity_1 = :null"); clear_vals[":null"] = None
-                if cmd_p2: clear_expr.append("cmd_polarity_2 = :null"); clear_vals[":null"] = None
+                clear_vals = {}
+                if cmd_reset:
+                    clear_expr.append("cmd_reset_cycles = :f")
+                    clear_vals[":f"] = False
+                if cmd_ota:
+                    clear_expr.append("cmd_ota_update = :f")
+                    clear_vals[":f"] = False
+                if cmd_a1:
+                    clear_expr.append("cmd_ariete_1 = :null")
+                    clear_vals[":null"] = None
+                if cmd_p1:
+                    clear_expr.append("cmd_polarity_1 = :null")
+                    clear_vals[":null"] = None
+                if cmd_p2:
+                    clear_expr.append("cmd_polarity_2 = :null")
+                    clear_vals[":null"] = None
 
                 if clear_expr:
                     table.update_item(
