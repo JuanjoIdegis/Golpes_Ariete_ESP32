@@ -137,6 +137,12 @@ function updateUI(data) {
     const fwElem = document.getElementById("firmwareVerText");
     if (fwElem) fwElem.textContent = data.firmware_ver || "v5.0";
 
+    // Nombre Ensayo / Prueba
+    const inputDevName = document.getElementById("inputDeviceName");
+    if (inputDevName && !inputDevName.dataset.userEditing) {
+        inputDevName.value = data.device_name || `Planta (${currentDeviceId})`;
+    }
+
     // Peticiones AWS
     const reqText = document.getElementById("requestCountText");
     if (reqText && data.request_count !== undefined) reqText.textContent = data.request_count;
@@ -491,5 +497,33 @@ async function saveSyncInterval() {
     } catch (e) {
         console.error("Error al guardar cadencia de sincronización:", e);
         delete selectSync.dataset.userEditing;
+    }
+}
+
+async function saveDeviceNameFromInput() {
+    const inputDevName = document.getElementById("inputDeviceName");
+    if (!inputDevName) return;
+    const newName = inputDevName.value.trim();
+    if (!newName) return;
+
+    try {
+        const btn = document.getElementById("btnSaveTestName");
+        const originalText = btn ? btn.innerHTML : "";
+        if (btn) btn.innerHTML = `<i class="fa-solid fa-check text-emerald-300"></i> <span>¡Guardado!</span>`;
+
+        await sendCommandPayload({
+            device_name: newName
+        });
+
+        fetchDeviceList();
+        fetchSystemStatus();
+
+        setTimeout(() => {
+            if (btn) btn.innerHTML = originalText;
+            delete inputDevName.dataset.userEditing;
+        }, 1500);
+    } catch (e) {
+        console.error("Error guardando nombre del ensayo:", e);
+        if (inputDevName) delete inputDevName.dataset.userEditing;
     }
 }
