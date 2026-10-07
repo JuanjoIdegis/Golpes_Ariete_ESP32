@@ -368,8 +368,8 @@ void loadSettingsFromNVS() {
     ariete1.cycleCount = preferences.getULong("a1_cyc", 0);
     ariete1.isRunning = preferences.getBool("a1_run", false);
 
-    polarity1.timeA_sec = preferences.getULong("p1_ta", 25200);
-    polarity1.timeB_sec = preferences.getULong("p1_tb", 25200);
+    polarity1.timeA_sec = preferences.getULong("p1_ta", 60);
+    polarity1.timeB_sec = preferences.getULong("p1_tb", 60);
     polarity1.deadband_sec = preferences.getULong("p1_td", 3);
     polarity1.cycleCount = preferences.getULong("p1_cyc", 0);
     polarity1.totalSecA = preferences.getULong("p1_tota", 0);
@@ -518,19 +518,39 @@ void parseAWSResponse(String payload) {
 
     if (doc.containsKey("cmd_ariete_1")) {
         JsonObject a1Cmd = doc["cmd_ariete_1"];
-        if (a1Cmd.containsKey("is_running")) ariete1.isRunning = a1Cmd["is_running"];
-        if (a1Cmd.containsKey("time_on")) ariete1.timeOnSec = a1Cmd["time_on"];
-        if (a1Cmd.containsKey("time_off")) ariete1.timeOffSec = a1Cmd["time_off"];
+        if (a1Cmd.containsKey("is_running")) ariete1.isRunning = a1Cmd["is_running"].as<bool>();
+        if (a1Cmd.containsKey("time_on")) ariete1.timeOnSec = a1Cmd["time_on"].as<unsigned long>();
+        if (a1Cmd.containsKey("time_off")) ariete1.timeOffSec = a1Cmd["time_off"].as<unsigned long>();
         if (a1Cmd.containsKey("reset_cycles") && a1Cmd["reset_cycles"].as<bool>()) ariete1.cycleCount = 0;
         needsSave = true;
     }
 
     if (doc.containsKey("cmd_polarity_1")) {
         JsonObject p1Cmd = doc["cmd_polarity_1"];
-        if (p1Cmd.containsKey("is_running")) polarity1.isRunning = p1Cmd["is_running"];
-        if (p1Cmd.containsKey("time_a")) polarity1.timeA_sec = p1Cmd["time_a"];
-        if (p1Cmd.containsKey("time_dead")) polarity1.deadband_sec = p1Cmd["time_dead"];
-        if (p1Cmd.containsKey("time_b")) polarity1.timeB_sec = p1Cmd["time_b"];
+        if (p1Cmd.containsKey("is_running")) {
+            bool runVal = p1Cmd["is_running"].as<bool>();
+            if (runVal != polarity1.isRunning) {
+                polarity1.isRunning = runVal;
+                if (polarity1.isRunning) {
+                    polarity1.state = POL_A;
+                    polarity1.setRelays(true, false);
+                    polarity1.lastChangeMs = millis();
+                    polarity1.lastSecTickMs = millis();
+                } else {
+                    polarity1.state = POL_STOPPED;
+                    polarity1.setRelays(false, false);
+                }
+            }
+        }
+        if (p1Cmd.containsKey("time_a")) {
+            polarity1.timeA_sec = p1Cmd["time_a"].as<unsigned long>();
+            if (polarity1.isRunning && polarity1.state == POL_A) polarity1.lastChangeMs = millis();
+        }
+        if (p1Cmd.containsKey("time_dead")) polarity1.deadband_sec = p1Cmd["time_dead"].as<unsigned long>();
+        if (p1Cmd.containsKey("time_b")) {
+            polarity1.timeB_sec = p1Cmd["time_b"].as<unsigned long>();
+            if (polarity1.isRunning && polarity1.state == POL_B) polarity1.lastChangeMs = millis();
+        }
         if (p1Cmd.containsKey("reset_cycles") && p1Cmd["reset_cycles"].as<bool>()) polarity1.cycleCount = 0;
         if (p1Cmd.containsKey("reset_totals") && p1Cmd["reset_totals"].as<bool>()) {
             polarity1.totalSecA = 0;
@@ -541,10 +561,30 @@ void parseAWSResponse(String payload) {
 
     if (doc.containsKey("cmd_polarity_2")) {
         JsonObject p2Cmd = doc["cmd_polarity_2"];
-        if (p2Cmd.containsKey("is_running")) polarity2.isRunning = p2Cmd["is_running"];
-        if (p2Cmd.containsKey("time_a")) polarity2.timeA_sec = p2Cmd["time_a"];
-        if (p2Cmd.containsKey("time_dead")) polarity2.deadband_sec = p2Cmd["time_dead"];
-        if (p2Cmd.containsKey("time_b")) polarity2.timeB_sec = p2Cmd["time_b"];
+        if (p2Cmd.containsKey("is_running")) {
+            bool runVal = p2Cmd["is_running"].as<bool>();
+            if (runVal != polarity2.isRunning) {
+                polarity2.isRunning = runVal;
+                if (polarity2.isRunning) {
+                    polarity2.state = POL_A;
+                    polarity2.setRelays(true, false);
+                    polarity2.lastChangeMs = millis();
+                    polarity2.lastSecTickMs = millis();
+                } else {
+                    polarity2.state = POL_STOPPED;
+                    polarity2.setRelays(false, false);
+                }
+            }
+        }
+        if (p2Cmd.containsKey("time_a")) {
+            polarity2.timeA_sec = p2Cmd["time_a"].as<unsigned long>();
+            if (polarity2.isRunning && polarity2.state == POL_A) polarity2.lastChangeMs = millis();
+        }
+        if (p2Cmd.containsKey("time_dead")) polarity2.deadband_sec = p2Cmd["time_dead"].as<unsigned long>();
+        if (p2Cmd.containsKey("time_b")) {
+            polarity2.timeB_sec = p2Cmd["time_b"].as<unsigned long>();
+            if (polarity2.isRunning && polarity2.state == POL_B) polarity2.lastChangeMs = millis();
+        }
         if (p2Cmd.containsKey("reset_cycles") && p2Cmd["reset_cycles"].as<bool>()) polarity2.cycleCount = 0;
         if (p2Cmd.containsKey("reset_totals") && p2Cmd["reset_totals"].as<bool>()) {
             polarity2.totalSecA = 0;
@@ -554,7 +594,7 @@ void parseAWSResponse(String payload) {
     }
 
     if (doc.containsKey("use_sensor")) {
-        useLevelSensor = doc["use_sensor"];
+        useLevelSensor = doc["use_sensor"].as<bool>();
         needsSave = true;
     }
 
@@ -612,7 +652,7 @@ void performHTTPUpdate(String otaUrl) {
     sendOTAProgressToAWS(5, "Iniciando descarga por Wi-Fi...");
 
     http.begin(client, otaUrl);
-    http.setTimeout(15000);
+    http.setTimeout(12000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
 
     int httpCode = http.GET();
@@ -620,14 +660,13 @@ void performHTTPUpdate(String otaUrl) {
         int contentLength = http.getSize();
         if (contentLength > 0) {
             if (Update.begin(contentLength)) {
-                sendOTAProgressToAWS(30, "Descargando e instalando firmware...");
                 WiFiClient* stream = http.getStreamPtr();
                 size_t written = Update.writeStream(*stream);
 
                 if (written == (size_t)contentLength) {
                     if (Update.end(true)) {
                         Serial.println("[OTA Exito] ¡Firmware flasheado correctamente!");
-                        sendOTAProgressToAWS(100, "¡Instalado con éxito! Reiniciando ESP32...");
+                        sendOTAProgressToAWS(100, "¡Instalado con éxito! Reiniciando...");
                         http.end();
                         delay(1000);
                         ESP.restart();
@@ -649,8 +688,9 @@ void performHTTPUpdate(String otaUrl) {
             sendOTAProgressToAWS(0, "Tamaño de archivo inválido");
         }
     } else {
-        Serial.printf("[OTA Error] Error HTTP GET: %d\n", httpCode);
+        Serial.printf("[OTA Error] Error HTTP GET: %d (%s)\n", httpCode, http.errorToString(httpCode).c_str());
         sendOTAProgressToAWS(0, "Error HTTP " + String(httpCode));
     }
+
     http.end();
 }
