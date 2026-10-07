@@ -439,10 +439,17 @@ void syncWithAWS() {
     http.addHeader("Content-Type", "application/json");
 
     StaticJsonDocument<1024> doc;
+    doc["client_type"] = "esp32";
     doc["device_id"] = deviceId;
     doc["firmware_ver"] = firmwareVer;
     doc["has_level"] = hasLevel;
     doc["use_sensor"] = useLevelSensor;
+    doc["state"] = ariete1.getStateString();
+    doc["is_running"] = ariete1.isRunning;
+    doc["time_on"] = ariete1.timeOnSec;
+    doc["time_off"] = ariete1.timeOffSec;
+    doc["cycle_count"] = ariete1.cycleCount;
+    doc["remaining_sec"] = ariete1.getRemainingSec();
 
     JsonObject a1 = doc.createNestedObject("ariete_1");
     a1["is_running"] = ariete1.isRunning;
@@ -492,8 +499,8 @@ void parseAWSResponse(String payload) {
 
     bool needsSave = false;
 
-    if (doc.containsKey("target_running") || doc.containsKey("is_running")) {
-        bool targetRun = doc.containsKey("target_running") ? doc["target_running"].as<bool>() : doc["is_running"].as<bool>();
+    if (doc.containsKey("target_running")) {
+        bool targetRun = doc["target_running"].as<bool>();
         if (targetRun != ariete1.isRunning) {
             ariete1.isRunning = targetRun;
             needsSave = true;

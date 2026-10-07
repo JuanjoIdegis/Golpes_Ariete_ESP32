@@ -119,7 +119,8 @@ def lambda_handler(event, context):
                     expr_attr_names["#cmd_a1"] = "cmd_ariete_1"
                     if isinstance(body["cmd_ariete_1"], dict) and "is_running" in body["cmd_ariete_1"]:
                         val = bool(body["cmd_ariete_1"]["is_running"])
-                        update_expr.append("ariete_1.is_running = :a1_run, is_running = :a1_run, #t_run = :a1_run")
+                        update_expr.append("is_running = :a1_run")
+                        update_expr.append("#t_run = :a1_run")
                         expr_attr_values[":a1_run"] = val
                         expr_attr_names["#t_run"] = "target_running"
 
@@ -129,7 +130,8 @@ def lambda_handler(event, context):
                     expr_attr_names["#cmd_p1"] = "cmd_polarity_1"
                     if isinstance(body["cmd_polarity_1"], dict) and "is_running" in body["cmd_polarity_1"]:
                         val = bool(body["cmd_polarity_1"]["is_running"])
-                        update_expr.append("polarity_1.is_running = :p1_run, is_running = :p1_run, #t_run = :p1_run")
+                        update_expr.append("is_running = :p1_run")
+                        update_expr.append("#t_run = :p1_run")
                         expr_attr_values[":p1_run"] = val
                         expr_attr_names["#t_run"] = "target_running"
 
@@ -139,11 +141,19 @@ def lambda_handler(event, context):
                     expr_attr_names["#cmd_p2"] = "cmd_polarity_2"
                     if isinstance(body["cmd_polarity_2"], dict) and "is_running" in body["cmd_polarity_2"]:
                         val = bool(body["cmd_polarity_2"]["is_running"])
-                        update_expr.append("polarity_2.is_running = :p2_run, is_running = :p2_run, #t_run = :p2_run")
+                        update_expr.append("is_running = :p2_run")
+                        update_expr.append("#t_run = :p2_run")
                         expr_attr_values[":p2_run"] = val
                         expr_attr_names["#t_run"] = "target_running"
 
-                # Legacy Ariete single-channel fallback
+                if "use_sensor" in body:
+                    update_expr.append("use_sensor = :u_sens")
+                    expr_attr_values[":u_sens"] = bool(body["use_sensor"])
+
+                if "sync_interval_ms" in body:
+                    update_expr.append("sync_interval_ms = :s_ms")
+                    expr_attr_values[":s_ms"] = Decimal(str(body["sync_interval_ms"]))
+
                 if "time_on" in body:
                     update_expr.append("#t_on = :t_on")
                     expr_attr_values[":t_on"] = Decimal(str(body["time_on"]))
@@ -161,7 +171,7 @@ def lambda_handler(event, context):
                     expr_attr_names["#ota_u"] = "ota_url"
                     expr_attr_names["#ota_c"] = "cmd_ota_update"
 
-                if "target_running" in body or "is_running" in body:
+                if ("target_running" in body or "is_running" in body) and "cmd_ariete_1" not in body and "cmd_polarity_1" not in body and "cmd_polarity_2" not in body:
                     target_val = bool(body.get("target_running", body.get("is_running")))
                     update_expr.append("#t_run = :t_run, is_running = :t_run")
                     expr_attr_values[":t_run"] = target_val
@@ -197,27 +207,51 @@ def lambda_handler(event, context):
                 firmware_ver = str(body.get("firmware_ver", "v5.0"))
                 has_level = bool(body.get("has_level", True))
                 use_sensor = bool(body.get("use_sensor", False))
+                is_running = bool(body.get("is_running", False))
+                state = str(body.get("state", "STOPPED"))
+                time_on = Decimal(str(body.get("time_on", 5)))
+                time_off = Decimal(str(body.get("time_off", 5)))
+                cycle_count = Decimal(str(body.get("cycle_count", 0)))
+                remaining_sec = Decimal(str(body.get("remaining_sec", 0)))
 
-                # Extraer canales si están en el payload
                 ariete_1 = body.get("ariete_1", {})
                 polarity_1 = body.get("polarity_1", {})
                 polarity_2 = body.get("polarity_2", {})
 
-                # Actualización en DynamoDB
+                # Fallback retrocompatible para firmwares v4.5 (si ariete_1 no viene en el payload)
+                if not ariete_1:
+                    ariete_1 = {
+                        "is_running": is_running,
+                        "state": state,
+                        "time_on": time_on,
+                        "time_off": time_off,
+                        "cycle_count": cycle_count,
+                        "remaining_sec": remaining_sec
+                    }
+
                 table.update_item(
                     Key={"device_id": device_id},
-                    UpdateExpression="SET device_name = if_not_exists(device_name, :dn), firmware_ver = :fw, has_level = :hl, use_sensor = :us, last_seen = :ls, ariete_1 = :a1, polarity_1 = :p1, polarity_2 = :p2, request_count = if_not_exists(request_count, :zero) + :inc",
+                    UpdateExpression="SET device_name = if_not_exists(device_name, :dn), firmware_ver = :fw, has_level = :hl, use_sensor = :us, last_seen = :ls, is_running = :ir, #st = :st, time_on = :ton, time_off = :toff, cycle_count = :cyc, remaining_sec = :rem, ariete_1 = :a1, polarity_1 = :p1, polarity_2 = :p2, request_count = if_not_exists(request_count, :zero) + :inc",
                     ExpressionAttributeValues={
                         ":dn": device_name,
                         ":fw": firmware_ver,
                         ":hl": has_level,
                         ":us": use_sensor,
                         ":ls": current_timestamp,
+                        ":ir": is_running,
+                        ":st": state,
+                        ":ton": time_on,
+                        ":toff": time_off,
+                        ":cyc": cycle_count,
+                        ":rem": remaining_sec,
                         ":a1": ariete_1,
                         ":p1": polarity_1,
                         ":p2": polarity_2,
                         ":zero": Decimal("0"),
                         ":inc": Decimal("1")
+                    },
+                    ExpressionAttributeNames={
+                        "#st": "state"
                     }
                 )
 
@@ -231,6 +265,7 @@ def lambda_handler(event, context):
                 cmd_ota = item.get("cmd_ota_update", False)
                 ota_url = item.get("ota_url", "")
                 sync_ms = item.get("sync_interval_ms", 5000)
+                target_running = item.get("target_running")
 
                 res_payload = {
                     "device_id": device_id,
@@ -239,12 +274,14 @@ def lambda_handler(event, context):
                     "ota_url": ota_url
                 }
 
+                if target_running is not None:
+                    res_payload["target_running"] = target_running
+
                 if cmd_a1: res_payload["cmd_ariete_1"] = cmd_a1
                 if cmd_p1: res_payload["cmd_polarity_1"] = cmd_p1
                 if cmd_p2: res_payload["cmd_polarity_2"] = cmd_p2
                 if cmd_reset: res_payload["cmd_reset_cycles"] = cmd_reset
 
-                # Limpiar comandos procesados de una sola vez
                 clear_expr = []
                 clear_vals = {":f": False}
                 if cmd_reset: clear_expr.append("cmd_reset_cycles = :f")
