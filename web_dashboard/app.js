@@ -236,6 +236,35 @@ function updateUI(data) {
     if (p2_totB) p2_totB.textContent = formatHoursMinutes(p2.total_sec_b);
     const p2_totSum = document.getElementById("p2_totalSum");
     if (p2_totSum) p2_totSum.textContent = formatHoursMinutes(p2.total_sec_sum || ((p2.total_sec_a || 0) + (p2.total_sec_b || 0)));
+
+    // OTA Progress UI Bar
+    const otaProgressContainer = document.getElementById("otaProgressContainer");
+    const otaProgressBar = document.getElementById("otaProgressBar");
+    const otaPercentText = document.getElementById("otaPercentText");
+    const otaStatusText = document.getElementById("otaStatusText");
+
+    if (otaProgressContainer && (data.state === "UPDATING_OTA" || (data.ota_progress > 0 && data.ota_progress < 100))) {
+        otaProgressContainer.classList.remove("hidden");
+        const pct = Math.min(100, Math.max(0, parseInt(data.ota_progress || 0, 10)));
+        if (otaProgressBar) otaProgressBar.style.width = `${pct}%`;
+        if (otaPercentText) otaPercentText.textContent = `${pct}%`;
+        if (otaStatusText) {
+            const msg = data.ota_status || "Descargando paquetes de firmware...";
+            otaStatusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-purple-400"></i> <span>${msg}</span>`;
+        }
+    } else if (otaProgressContainer && data.ota_progress >= 100) {
+        otaProgressContainer.classList.remove("hidden");
+        if (otaProgressBar) otaProgressBar.style.width = `100%`;
+        if (otaPercentText) otaPercentText.textContent = `100%`;
+        if (otaStatusText) {
+            otaStatusText.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i> <span>¡Firmware instalado! Reiniciando ESP32...</span>`;
+        }
+        setTimeout(() => {
+            if (otaProgressContainer) otaProgressContainer.classList.add("hidden");
+        }, 5000);
+    } else if (otaProgressContainer) {
+        otaProgressContainer.classList.add("hidden");
+    }
 }
 
 function formatHoursMinutes(seconds) {
@@ -248,7 +277,7 @@ function formatHoursMinutes(seconds) {
     }
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
-    return `${h}h ${m}m`;
+    return `${h}h ${m}`;
 }
 
 function updateConnectionBadge(isOnline) {
@@ -364,4 +393,50 @@ function savePolarity2Config() {
     sendCommandPayload({
         cmd_polarity_2: { time_a: timeASec, time_b: timeBSec, time_dead: timeDead }
     });
+}
+
+// Despachar Orden de Actualización de Firmware por OTA al ESP32
+async function triggerOTA() {
+    const urlInput = document.getElementById("inputOtaUrl");
+    const otaUrl = urlInput ? urlInput.value.trim() : "";
+
+    if (!otaUrl || !otaUrl.startsWith("http")) {
+        alert("Por favor ingresa una URL válida (HTTP/HTTPS) que apunte al archivo .bin de firmware.");
+        return;
+    }
+
+    if (!confirm(`¿Deseas enviar la orden de actualización OTA al dispositivo (${currentDeviceId}) desde la URL:\n${otaUrl}?`)) {
+        return;
+    }
+
+    try {
+        const btn = document.getElementById("btnTriggerOta");
+        const originalText = btn ? btn.innerHTML : "";
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Enviando orden OTA...</span>`;
+        }
+
+        await sendCommandPayload({
+            ota_url: otaUrl
+        });
+
+        if (btn) {
+            btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> <span>¡Orden OTA enviada!</span>`;
+        }
+        alert(`¡Orden de actualización OTA enviada exitosamente a AWS!\nEn el próximo latido (5s), el ESP32 descargará e instalará el nuevo firmware.`);
+
+        setTimeout(() => {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
+            fetchSystemStatus();
+        }, 3000);
+
+    } catch (err) {
+        alert("Error al despachar orden OTA: " + err.message);
+        const btn = document.getElementById("btnTriggerOta");
+        if (btn) btn.disabled = false;
+    }
 }
