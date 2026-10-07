@@ -492,6 +492,23 @@ void parseAWSResponse(String payload) {
 
     bool needsSave = false;
 
+    if (doc.containsKey("target_running") || doc.containsKey("is_running")) {
+        bool targetRun = doc.containsKey("target_running") ? doc["target_running"].as<bool>() : doc["is_running"].as<bool>();
+        if (targetRun != ariete1.isRunning) {
+            ariete1.isRunning = targetRun;
+            needsSave = true;
+        }
+    }
+
+    if (doc.containsKey("target_time_on")) {
+        unsigned long tOn = doc["target_time_on"].as<unsigned long>();
+        if (tOn > 0) ariete1.timeOnSec = tOn;
+    }
+    if (doc.containsKey("target_time_off")) {
+        unsigned long tOff = doc["target_time_off"].as<unsigned long>();
+        if (tOff > 0) ariete1.timeOffSec = tOff;
+    }
+
     if (doc.containsKey("cmd_ariete_1")) {
         JsonObject a1Cmd = doc["cmd_ariete_1"];
         if (a1Cmd.containsKey("is_running")) ariete1.isRunning = a1Cmd["is_running"];
