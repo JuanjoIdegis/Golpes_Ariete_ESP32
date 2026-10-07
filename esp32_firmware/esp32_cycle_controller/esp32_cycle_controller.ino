@@ -252,7 +252,7 @@ struct ArieteChannel {
 };
 
 String deviceId = "esp32_01"; 
-String firmwareVer = "v5.1";
+String firmwareVer = "v5.1 (" __DATE__ " " __TIME__ ")";
 
 ArieteChannel ariete1;
 PolarityChannel polarity1;
