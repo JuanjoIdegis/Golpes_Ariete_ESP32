@@ -118,24 +118,30 @@ def lambda_handler(event, context):
                     expr_attr_values[":cmd_a1"] = body["cmd_ariete_1"]
                     expr_attr_names["#cmd_a1"] = "cmd_ariete_1"
                     if isinstance(body["cmd_ariete_1"], dict) and "is_running" in body["cmd_ariete_1"]:
-                        update_expr.append("ariete_1.is_running = :a1_run")
-                        expr_attr_values[":a1_run"] = bool(body["cmd_ariete_1"]["is_running"])
+                        val = bool(body["cmd_ariete_1"]["is_running"])
+                        update_expr.append("ariete_1.is_running = :a1_run, is_running = :a1_run, #t_run = :a1_run")
+                        expr_attr_values[":a1_run"] = val
+                        expr_attr_names["#t_run"] = "target_running"
 
                 if "cmd_polarity_1" in body:
                     update_expr.append("#cmd_p1 = :cmd_p1")
                     expr_attr_values[":cmd_p1"] = body["cmd_polarity_1"]
                     expr_attr_names["#cmd_p1"] = "cmd_polarity_1"
                     if isinstance(body["cmd_polarity_1"], dict) and "is_running" in body["cmd_polarity_1"]:
-                        update_expr.append("polarity_1.is_running = :p1_run")
-                        expr_attr_values[":p1_run"] = bool(body["cmd_polarity_1"]["is_running"])
+                        val = bool(body["cmd_polarity_1"]["is_running"])
+                        update_expr.append("polarity_1.is_running = :p1_run, is_running = :p1_run, #t_run = :p1_run")
+                        expr_attr_values[":p1_run"] = val
+                        expr_attr_names["#t_run"] = "target_running"
 
                 if "cmd_polarity_2" in body:
                     update_expr.append("#cmd_p2 = :cmd_p2")
                     expr_attr_values[":cmd_p2"] = body["cmd_polarity_2"]
                     expr_attr_names["#cmd_p2"] = "cmd_polarity_2"
                     if isinstance(body["cmd_polarity_2"], dict) and "is_running" in body["cmd_polarity_2"]:
-                        update_expr.append("polarity_2.is_running = :p2_run")
-                        expr_attr_values[":p2_run"] = bool(body["cmd_polarity_2"]["is_running"])
+                        val = bool(body["cmd_polarity_2"]["is_running"])
+                        update_expr.append("polarity_2.is_running = :p2_run, is_running = :p2_run, #t_run = :p2_run")
+                        expr_attr_values[":p2_run"] = val
+                        expr_attr_names["#t_run"] = "target_running"
 
                 # Legacy Ariete single-channel fallback
                 if "time_on" in body:
