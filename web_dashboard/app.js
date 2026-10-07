@@ -50,17 +50,24 @@ function renderDeviceSelector() {
         select.appendChild(option);
     });
 
-    if (registeredDevices.some(d => d.device_id === previousValue)) {
+    if (!select.dataset.userSelected) {
+        const onlineDev = registeredDevices.find(d => d.is_online);
+        if (onlineDev) {
+            currentDeviceId = onlineDev.device_id;
+            select.value = currentDeviceId;
+        } else if (registeredDevices.length > 0) {
+            currentDeviceId = registeredDevices[0].device_id;
+            select.value = currentDeviceId;
+        }
+    } else if (registeredDevices.some(d => d.device_id === previousValue)) {
         select.value = previousValue;
-    } else if (registeredDevices.length > 0) {
-        currentDeviceId = registeredDevices[0].device_id;
-        select.value = currentDeviceId;
     }
 }
 
 function onDeviceChange() {
     const select = document.getElementById("deviceSelect");
     if (select) {
+        select.dataset.userSelected = "true";
         currentDeviceId = select.value;
         fetchSystemStatus();
     }
@@ -129,6 +136,16 @@ function updateUI(data) {
     // Versión firmware
     const fwElem = document.getElementById("firmwareVerText");
     if (fwElem) fwElem.textContent = data.firmware_ver || "v5.0";
+
+    // Peticiones AWS
+    const reqText = document.getElementById("requestCountText");
+    if (reqText && data.request_count !== undefined) reqText.textContent = data.request_count;
+
+    // Frecuencia sincronización (sync_interval_ms)
+    const selectSync = document.getElementById("selectSyncInterval");
+    if (selectSync && data.sync_interval_ms && !selectSync.dataset.userEditing) {
+        selectSync.value = data.sync_interval_ms.toString();
+    }
 
     // Sensor nivel
     const chkUseSensor = document.getElementById("chkUseSensor");
@@ -458,5 +475,21 @@ async function toggleSensorSetting() {
         });
     } catch (e) {
         console.error("Error cambiando uso de sensor:", e);
+    }
+}
+
+async function saveSyncInterval() {
+    const selectSync = document.getElementById("selectSyncInterval");
+    if (!selectSync) return;
+    selectSync.dataset.userEditing = "true";
+    const syncVal = parseInt(selectSync.value, 10) || 2000;
+    try {
+        await sendCommandPayload({
+            sync_interval_ms: syncVal
+        });
+        setTimeout(() => { delete selectSync.dataset.userEditing; }, 3000);
+    } catch (e) {
+        console.error("Error al guardar cadencia de sincronización:", e);
+        delete selectSync.dataset.userEditing;
     }
 }

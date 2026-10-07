@@ -48,6 +48,12 @@
                 <span id="levelText">Nivel: OK</span>
             </div>
 
+            <!-- Badge Peticiones AWS -->
+            <div id="requestCountBadge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-400 border border-blue-500/30" title="Número total de peticiones procesadas por AWS para este dispositivo">
+                <i class="fa-solid fa-server text-xs"></i>
+                <span>Peticiones AWS: <span id="requestCountText" class="font-bold">0</span></span>
+            </div>
+
             <!-- Badge Conexión -->
             <div id="connectionBadge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30">
                 <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
@@ -57,13 +63,34 @@
             <!-- Badge Firmware -->
             <div id="firmwareBadge" class="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-purple-500/20 text-purple-300 border border-purple-500/30">
                 <i class="fa-solid fa-code-branch text-xs"></i>
-                <span><span id="firmwareVerText">v5.1</span></span>
+                <span>Firmware: <span id="firmwareVerText" class="font-bold">v5.1</span></span>
             </div>
         </div>
     </header>
 
     <!-- Content Grid -->
     <main class="w-full max-w-5xl space-y-6">
+
+        <!-- Frecuencia de Sincronización Nube (Latido ESP32) -->
+        <div class="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-4 shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div class="flex items-center space-x-3">
+                <div class="p-2.5 bg-blue-500/20 text-blue-400 rounded-xl border border-blue-500/30">
+                    <i class="fa-solid fa-wifi text-lg"></i>
+                </div>
+                <div>
+                    <label for="selectSyncInterval" class="text-sm font-bold text-white block">Frecuencia de Sincronización Nube (Latido ESP32)</label>
+                    <p class="text-xs text-slate-400">Cadencia con la que el ESP32 reporta datos a la nube AWS y descarga órdenes.</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3 w-full sm:w-auto">
+                <select id="selectSyncInterval" onchange="saveSyncInterval()" class="w-full sm:w-auto bg-slate-900 border border-slate-700 text-white font-bold text-xs rounded-xl px-4 py-2.5 focus:outline-none focus:border-blue-500">
+                    <option value="1000">Cada 1 segundo (Máxima precisión)</option>
+                    <option value="2000" selected>Cada 2 segundos (Estándar)</option>
+                    <option value="5000">Cada 5 segundos (Ahorro AWS)</option>
+                    <option value="10000">Cada 10 segundos (Bajo consumo)</option>
+                </select>
+            </div>
+        </div>
 
         <!-- CANAL 1: GOLPE DE ARIETE (GPIO 2) -->
         <section class="bg-slate-800/80 border border-slate-700/60 rounded-2xl p-6 shadow-xl">
