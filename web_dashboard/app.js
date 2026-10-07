@@ -1,46 +1,25 @@
 // Endpoint de AWS API Gateway Cloud Exclusivo (eu-north-1)
 const AWS_API_BASE_URL = "https://d3h13f6kjb.execute-api.eu-north-1.amazonaws.com/default/GolpesAriete_SyncBackend?api_key=GolpesAriete2026SecureKey!";
 
-// Dispositivo actualmente seleccionado
 let currentDeviceId = "esp32_01";
 let registeredDevices = [];
+let currentData = {};
 
-// Estado de la aplicación local
-let currentData = {
-    device_id: "esp32_01",
-    device_name: "Planta 1",
-    state: "STOPPED",
-    is_running: false,
-    has_level: true,
-    use_sensor: false,
-    time_on: 5,
-    time_off: 5,
-    cycle_count: 0,
-    remaining_sec: 0,
-    request_count: 0,
-    target_time_on: 5,
-    target_time_off: 5
-};
-
-const POLLING_INTERVAL_MS = 4000; // Consultar estado cada 4s (Ahorro del 65% de peticiones HTTP en AWS)
+const POLLING_INTERVAL_MS = 4000;
 
 document.addEventListener("DOMContentLoaded", () => {
     fetchDeviceList();
     fetchSystemStatus();
     setInterval(fetchSystemStatus, POLLING_INTERVAL_MS);
-    setInterval(fetchDeviceList, 20000); // Refrescar lista de dispositivos automáticamente cada 20s
+    setInterval(fetchDeviceList, 20000);
 });
 
-// Obtener dinámicamente todos los ESP32 registrados en AWS DynamoDB
 async function fetchDeviceList() {
     try {
         const response = await fetch(`${AWS_API_BASE_URL}&device_id=all`, {
             method: "GET",
-            headers: {
-                "Accept": "application/json"
-            }
+            headers: { "Accept": "application/json" }
         });
-
         if (response.ok) {
             const devices = await response.json();
             if (Array.isArray(devices) && devices.length > 0) {
@@ -53,7 +32,6 @@ async function fetchDeviceList() {
     }
 }
 
-// Renderizar dinámicamente el selector de plantas/dispositivos
 function renderDeviceSelector() {
     const select = document.getElementById("deviceSelect");
     if (!select) return;
@@ -65,7 +43,7 @@ function renderDeviceSelector() {
         const devId = dev.device_id;
         const devName = dev.device_name || `Planta (${devId})`;
         const statusIcon = dev.is_online ? "🟢 ONLINE" : "🔴 OFFLINE";
-        
+
         const option = document.createElement("option");
         option.value = devId;
         option.textContent = `${statusIcon} - ${devName} (${devId})`;
@@ -80,7 +58,6 @@ function renderDeviceSelector() {
     }
 }
 
-// Cambiar de Planta / Dispositivo
 function onDeviceChange() {
     const select = document.getElementById("deviceSelect");
     if (select) {
@@ -89,7 +66,6 @@ function onDeviceChange() {
     }
 }
 
-// Editar Nombre Personalizado del Dispositivo / Planta
 async function editDeviceName() {
     const currentName = currentData.device_name || `Planta (${currentDeviceId})`;
     const newName = prompt(`Ingresa el nuevo nombre para la ubicación (${currentDeviceId}):`, currentName);
@@ -101,357 +77,248 @@ async function editDeviceName() {
                 device_id: currentDeviceId,
                 device_name: newName.trim()
             };
-
-            await sendPostToAWS(payload);
+            await fetch(AWS_API_BASE_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
             fetchDeviceList();
             fetchSystemStatus();
-        } catch (err) {
-            alert("Error al guardar el nuevo nombre: " + err.message);
+        } catch (e) {
+            console.error("Error cambiando nombre:", e);
         }
     }
 }
 
-// Consultar el estado del dispositivo seleccionado desde AWS
 async function fetchSystemStatus() {
     try {
-        const url = `${AWS_API_BASE_URL}&device_id=${encodeURIComponent(currentDeviceId)}`;
-        const response = await fetch(url, {
+        const response = await fetch(`${AWS_API_BASE_URL}&device_id=${currentDeviceId}`, {
             method: "GET",
-            headers: {
-                "Accept": "application/json"
-            }
+            headers: { "Accept": "application/json" }
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        if (!response.ok) throw new Error("HTTP error " + response.status);
 
         const data = await response.json();
         currentData = data;
-
         updateUI(data);
-        updateConnectionBadge(true, data.is_online);
 
     } catch (error) {
-        console.warn("Error al consultar AWS API Gateway:", error);
+        console.error("Error obteniendo estado:", error);
         updateConnectionBadge(false);
     }
 }
 
-// Actualizar elementos visuales en el DOM
+function formatTime(seconds) {
+    if (!seconds || seconds <= 0) return "-- s";
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) {
+        const m = Math.floor(seconds / 60);
+        const s = seconds % 60;
+        return `${m}m ${s}s`;
+    }
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h}h ${m}m ${s}s`;
+}
+
 function updateUI(data) {
-    // 1. Badge y Switch de Sensor de Nivel / Flujo
-    const levelBadge = document.getElementById("levelBadge");
+    updateConnectionBadge(data.is_online);
+
+    // Versión firmware
+    const fwElem = document.getElementById("firmwareVerText");
+    if (fwElem) fwElem.textContent = data.firmware_ver || "v5.0";
+
+    // Sensor nivel
     const levelText = document.getElementById("levelText");
-    const chkUseSensor = document.getElementById("chkUseSensor");
-
-    const useSensor = data.use_sensor !== undefined ? data.use_sensor : false;
-    const hasLevel = data.has_level !== undefined ? data.has_level : true;
-
-    if (chkUseSensor && document.activeElement !== chkUseSensor) {
-        chkUseSensor.checked = useSensor;
-    }
-
-    if (!useSensor) {
-        levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-700 text-slate-400 border border-slate-600";
-        levelText.textContent = "Sensor: Desactivado (Opcional)";
-    } else if (hasLevel && data.state !== "NO_LEVEL") {
-        levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-        levelText.textContent = "Nivel: OK";
-    } else {
-        levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse";
-        levelText.textContent = "ALERTA: Sin Nivel";
-    }
-
-    // 2. Contador de Ciclos y Peticiones API
-    const cycleCountDisplay = document.getElementById("cycleCountDisplay");
-    if (cycleCountDisplay) {
-        cycleCountDisplay.textContent = data.cycle_count !== undefined ? data.cycle_count : 0;
-    }
-
-    const requestCountText = document.getElementById("requestCountText");
-    if (requestCountText) {
-        requestCountText.textContent = data.request_count !== undefined ? data.request_count : 0;
-    }
-
-    // 3. Tiempo Restante
-    const remainingTimeText = document.getElementById("remainingTimeText");
-    if (remainingTimeText) {
-        remainingTimeText.textContent = `${data.remaining_sec !== undefined ? data.remaining_sec : 0} s`;
-    }
-
-    // 4. Inputs de Tiempo (si el usuario no está escribiendo activamente)
-    const inputTimeOn = document.getElementById("inputTimeOn");
-    const inputTimeOff = document.getElementById("inputTimeOff");
-
-    if (inputTimeOn && document.activeElement !== inputTimeOn) {
-        inputTimeOn.value = data.target_time_on || data.time_on || 5;
-    }
-    if (inputTimeOff && document.activeElement !== inputTimeOff) {
-        inputTimeOff.value = data.target_time_off || data.time_off || 5;
-    }
-
-    const selectSyncInterval = document.getElementById("selectSyncInterval");
-    if (selectSyncInterval && document.activeElement !== selectSyncInterval) {
-        if (data.sync_interval_ms) {
-            selectSyncInterval.value = String(data.sync_interval_ms);
+    const levelBadge = document.getElementById("levelBadge");
+    if (levelText && levelBadge) {
+        if (data.has_level !== false) {
+            levelText.textContent = "Nivel: OK";
+            levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        } else {
+            levelText.textContent = "ALERTA: Sin Nivel!";
+            levelBadge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30 animate-pulse";
         }
     }
 
-    // 5. Indicador de Estado del Relé
-    const stateLabel = document.getElementById("stateLabel");
-    const stateIconBg = document.getElementById("stateIconBg");
-    const stateIcon = document.getElementById("stateIcon");
+    // 1. CANAL ARIETE 1
+    const a1 = data.ariete_1 || {
+        state: data.state || "STOPPED",
+        is_running: data.is_running || false,
+        time_on: data.time_on || 5,
+        time_off: data.time_off || 5,
+        cycle_count: data.cycle_count || 0,
+        remaining_sec: data.remaining_sec || 0
+    };
 
-    const state = data.state || (data.is_running ? "ON" : "STOPPED");
-
-    if (useSensor && (!hasLevel || state === "NO_LEVEL")) {
-        stateLabel.textContent = "SIN NIVEL (PARADO OFF)";
-        stateLabel.className = "mt-4 text-xl font-bold uppercase tracking-wider text-rose-400";
-        stateIconBg.className = "w-24 h-24 rounded-full bg-rose-500/20 border-2 border-rose-500 flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all duration-300 animate-bounce";
-        stateIcon.className = "fa-solid fa-triangle-exclamation text-4xl text-rose-400";
-    } else if (state === "ON") {
-        stateLabel.textContent = "ENCENDIDO (ON)";
-        stateLabel.className = "mt-4 text-xl font-bold uppercase tracking-wider text-emerald-400";
-        stateIconBg.className = "w-24 h-24 rounded-full bg-emerald-500/20 border-2 border-emerald-500 flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all duration-300 animate-pulse";
-        stateIcon.className = "fa-solid fa-lightbulb text-4xl text-emerald-400";
-    } else if (state === "OFF") {
-        stateLabel.textContent = "APAGADO (OFF)";
-        stateLabel.className = "mt-4 text-xl font-bold uppercase tracking-wider text-amber-400";
-        stateIconBg.className = "w-24 h-24 rounded-full bg-amber-500/20 border-2 border-amber-500 flex items-center justify-center shadow-lg shadow-amber-500/30 transition-all duration-300";
-        stateIcon.className = "fa-solid fa-moon text-4xl text-amber-400";
-    } else {
-        stateLabel.textContent = "DETENIDO";
-        stateLabel.className = "mt-4 text-xl font-bold uppercase tracking-wider text-slate-400";
-        stateIconBg.className = "w-24 h-24 rounded-full bg-slate-700/50 border-2 border-slate-600 flex items-center justify-center shadow-inner transition-all duration-300";
-        stateIcon.className = "fa-solid fa-stop text-4xl text-slate-400";
-    }
-
-    // 6. Estado del botón Iniciar / Detener
-    const btnStart = document.getElementById("btnStart");
-    const btnStop = document.getElementById("btnStop");
-
-    if (data.is_running) {
-        btnStart.classList.add("opacity-50", "cursor-not-allowed");
-        btnStop.classList.remove("opacity-50", "cursor-not-allowed");
-    } else {
-        btnStart.classList.remove("opacity-50", "cursor-not-allowed");
-        btnStop.classList.add("opacity-50", "cursor-not-allowed");
-    }
-
-    // 7. Versión de Firmware Activa en ESP32
-    const firmwareVerText = document.getElementById("firmwareVerText");
-    if (firmwareVerText && data.firmware_ver) {
-        firmwareVerText.textContent = data.firmware_ver;
-    }
-
-    // 8. Barra de Progreso en Vivo de descarga OTA
-    const otaProgressContainer = document.getElementById("otaProgressContainer");
-    const otaProgressBar = document.getElementById("otaProgressBar");
-    const otaPercentText = document.getElementById("otaPercentText");
-    const otaStatusText = document.getElementById("otaStatusText");
-
-    if (otaProgressContainer && (data.state === "UPDATING_OTA" || (data.ota_progress > 0 && data.ota_progress < 100))) {
-        otaProgressContainer.classList.remove("hidden");
-        const pct = Math.min(100, Math.max(0, parseInt(data.ota_progress || 0, 10)));
-        if (otaProgressBar) otaProgressBar.style.width = `${pct}%`;
-        if (otaPercentText) otaPercentText.textContent = `${pct}%`;
-        if (otaStatusText) {
-            const msg = data.ota_status || "Descargando paquetes de firmware...";
-            otaStatusText.innerHTML = `<i class="fa-solid fa-spinner fa-spin text-purple-400"></i> <span>${msg}</span>`;
+    const a1_badge = document.getElementById("a1_statusBadge");
+    if (a1_badge) {
+        if (a1.state === "ON") {
+            a1_badge.textContent = "🟢 ENCENDIDO (ON)";
+            a1_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        } else if (a1.state === "OFF") {
+            a1_badge.textContent = "🟡 PAUSA (OFF)";
+            a1_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30";
+        } else {
+            a1_badge.textContent = "🔴 DETENIDO";
+            a1_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-slate-700 text-slate-300";
         }
-    } else if (otaProgressContainer && data.ota_progress >= 100) {
-        otaProgressContainer.classList.remove("hidden");
-        if (otaProgressBar) otaProgressBar.style.width = `100%`;
-        if (otaPercentText) otaPercentText.textContent = `100%`;
-        if (otaStatusText) {
-            otaStatusText.innerHTML = `<i class="fa-solid fa-circle-check text-emerald-400"></i> <span>¡Firmware instalado! Reiniciando ESP32...</span>`;
+    }
+
+    const a1_rem = document.getElementById("a1_remTime");
+    if (a1_rem) a1_rem.textContent = formatTime(a1.remaining_sec);
+
+    const a1_cyc = document.getElementById("a1_cycleCount");
+    if (a1_cyc) a1_cyc.textContent = a1.cycle_count || 0;
+
+    // 2. CANAL POLARIDAD 1
+    const p1 = data.polarity_1 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0 };
+    const p1_badge = document.getElementById("p1_statusBadge");
+    if (p1_badge) {
+        if (p1.state === "POLARITY_A") {
+            p1_badge.textContent = "🟢 POLARIDAD A (DIRECTA)";
+            p1_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        } else if (p1.state === "POLARITY_B") {
+            p1_badge.textContent = "🔵 POLARIDAD B (INVERSA)";
+            p1_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-blue-500/20 text-blue-400 border border-blue-500/30";
+        } else if (p1.state === "DEADBAND") {
+            p1_badge.textContent = "⏸️ PAUSA SEGURIDAD (BANDA MUERTA)";
+            p1_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse";
+        } else {
+            p1_badge.textContent = "🔴 DETENIDO";
+            p1_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-slate-700 text-slate-300";
         }
-        setTimeout(() => {
-            if (otaProgressContainer) otaProgressContainer.classList.add("hidden");
-        }, 5000);
-    } else if (otaProgressContainer) {
-        otaProgressContainer.classList.add("hidden");
     }
+
+    const p1_rem = document.getElementById("p1_remTime");
+    if (p1_rem) p1_rem.textContent = formatTime(p1.remaining_sec);
+
+    const p1_cyc = document.getElementById("p1_cycleCount");
+    if (p1_cyc) p1_cyc.textContent = p1.cycle_count || 0;
+
+    // 3. CANAL POLARIDAD 2
+    const p2 = data.polarity_2 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0 };
+    const p2_badge = document.getElementById("p2_statusBadge");
+    if (p2_badge) {
+        if (p2.state === "POLARITY_A") {
+            p2_badge.textContent = "🟢 POLARIDAD A (DIRECTA)";
+            p2_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        } else if (p2.state === "POLARITY_B") {
+            p2_badge.textContent = "🔵 POLARIDAD B (INVERSA)";
+            p2_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-cyan-500/20 text-cyan-400 border border-cyan-500/30";
+        } else if (p2.state === "DEADBAND") {
+            p2_badge.textContent = "⏸️ PAUSA SEGURIDAD (BANDA MUERTA)";
+            p2_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30 animate-pulse";
+        } else {
+            p2_badge.textContent = "🔴 DETENIDO";
+            p2_badge.className = "px-3 py-1 rounded-full text-xs font-bold bg-slate-700 text-slate-300";
+        }
+    }
+
+    const p2_rem = document.getElementById("p2_remTime");
+    if (p2_rem) p2_rem.textContent = formatTime(p2.remaining_sec);
+
+    const p2_cyc = document.getElementById("p2_cycleCount");
+    if (p2_cyc) p2_cyc.textContent = p2.cycle_count || 0;
 }
 
-// Cambiar estado Iniciar / Detener
-async function setSystemState(shouldRun) {
-    try {
-        const payload = {
-            client_type: "web",
-            device_id: currentDeviceId,
-            is_running: shouldRun,
-            target_running: shouldRun
-        };
-
-        // Actualización optimista inmediata de la interfaz
-        currentData.is_running = shouldRun;
-        currentData.state = shouldRun ? "ON" : "STOPPED";
-        updateUI(currentData);
-
-        await sendPostToAWS(payload);
-        fetchSystemStatus();
-    } catch (err) {
-        alert("Error al enviar comando a AWS: " + err.message);
-    }
-}
-
-// Activar/Desactivar Sensor de Nivel Opcional
-async function toggleSensorSetting() {
-    try {
-        const chkUseSensor = document.getElementById("chkUseSensor");
-        const payload = {
-            client_type: "web",
-            device_id: currentDeviceId,
-            use_sensor: chkUseSensor.checked
-        };
-
-        await sendPostToAWS(payload);
-        fetchSystemStatus();
-    } catch (err) {
-        alert("Error al actualizar opción de sensor: " + err.message);
-    }
-}
-
-// Guardar Tiempos ON / OFF
-async function saveTimers(event) {
-    event.preventDefault();
-
-    const timeOnVal = parseInt(document.getElementById("inputTimeOn").value, 10);
-    const timeOffVal = parseInt(document.getElementById("inputTimeOff").value, 10);
-    const syncIntervalVal = parseInt(document.getElementById("selectSyncInterval").value, 10) || 2000;
-
-    if (isNaN(timeOnVal) || timeOnVal <= 0 || isNaN(timeOffVal) || timeOffVal <= 0) {
-        alert("Por favor ingresa valores de tiempo válidos en segundos (mayores a 0).");
-        return;
-    }
-
-    try {
-        const payload = {
-            client_type: "web",
-            device_id: currentDeviceId,
-            time_on: timeOnVal,
-            time_off: timeOffVal,
-            sync_interval_ms: syncIntervalVal
-        };
-
-        // Actualización local inmediata de tiempos
-        currentData.time_on = timeOnVal;
-        currentData.target_time_on = timeOnVal;
-        currentData.time_off = timeOffVal;
-        currentData.target_time_off = timeOffVal;
-
-        const btn = document.getElementById("btnSaveConfig");
-        const originalText = btn.innerHTML;
-        btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> <span>¡Guardado!</span>`;
-
-        await sendPostToAWS(payload);
-
-        setTimeout(() => {
-            btn.innerHTML = originalText;
-            fetchSystemStatus();
-        }, 1000);
-
-    } catch (err) {
-        alert("Error al guardar la configuración en AWS: " + err.message);
-    }
-}
-
-// Resetear contador de ciclos
-async function resetCycles() {
-    if (!confirm(`¿Estás seguro de que deseas resetear el contador de ciclos del dispositivo (${currentDeviceId}) a 0?`)) {
-        return;
-    }
-
-    try {
-        const payload = {
-            client_type: "web",
-            device_id: currentDeviceId,
-            cmd_reset_cycles: true
-        };
-
-        await sendPostToAWS(payload);
-        fetchSystemStatus();
-    } catch (err) {
-        alert("Error al resetear ciclos: " + err.message);
-    }
-}
-
-// Despachar Orden de Actualización de Firmware por OTA al ESP32
-async function triggerOTA() {
-    const urlInput = document.getElementById("inputOtaUrl");
-    const otaUrl = urlInput ? urlInput.value.trim() : "";
-
-    if (!otaUrl || !otaUrl.startsWith("http")) {
-        alert("Por favor ingresa una URL válida (HTTP/HTTPS) que apunte al archivo .bin de firmware.");
-        return;
-    }
-
-    if (!confirm(`¿Deseas enviar la orden de actualización OTA al dispositivo (${currentDeviceId}) desde la URL:\n${otaUrl}?`)) {
-        return;
-    }
-
-    try {
-        const btn = document.getElementById("btnTriggerOta");
-        const originalText = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Enviando orden OTA...</span>`;
-
-        const payload = {
-            client_type: "web",
-            device_id: currentDeviceId,
-            ota_url: otaUrl
-        };
-
-        await sendPostToAWS(payload);
-
-        btn.innerHTML = `<i class="fa-solid fa-check text-emerald-400"></i> <span>¡Orden OTA enviada!</span>`;
-        alert(`¡Orden de actualización OTA enviada exitosamente a AWS!\nEn el próximo latido (5s), el ESP32 descargar e instalará el nuevo firmware.`);
-
-        setTimeout(() => {
-            btn.disabled = false;
-            btn.innerHTML = originalText;
-            fetchSystemStatus();
-        }, 3000);
-
-    } catch (err) {
-        alert("Error al despachar orden OTA: " + err.message);
-        const btn = document.getElementById("btnTriggerOta");
-        if (btn) btn.disabled = false;
-    }
-}
-
-// Función auxiliar para realizar llamadas POST a AWS
-async function sendPostToAWS(payload) {
-    const response = await fetch(AWS_API_BASE_URL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "text/plain"
-        },
-        body: JSON.stringify(payload)
-    });
-
-    if (!response.ok) {
-        throw new Error(`Error en el servidor AWS: ${response.status}`);
-    }
-
-    return await response.json();
-}
-
-// Actualizar badge de conexión en el Header
-function updateConnectionBadge(isConnectedToAws, isEspOnline = false) {
+function updateConnectionBadge(isOnline) {
     const badge = document.getElementById("connectionBadge");
     const text = document.getElementById("connectionText");
+    if (!badge || !text) return;
 
-    if (!isConnectedToAws) {
-        badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30";
-        text.textContent = "Sin Conexión AWS";
-    } else if (isEspOnline) {
+    if (isOnline) {
         badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
-        text.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> <span>ESP32 ONLINE</span>`;
+        text.textContent = "ESP32 ONLINE";
     } else {
-        badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-400 border border-amber-500/30";
-        text.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>ESP32 OFFLINE</span>`;
+        badge.className = "flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+        text.textContent = "ESP32 OFFLINE";
     }
+}
+
+// FUNCIONES DE CONTROL DE CANALES
+
+async function sendCommandPayload(cmdPayload) {
+    try {
+        const payload = {
+            client_type: "web",
+            device_id: currentDeviceId,
+            ...cmdPayload
+        };
+        await fetch(AWS_API_BASE_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+        });
+        setTimeout(fetchSystemStatus, 500);
+    } catch (e) {
+        console.error("Error enviando comando:", e);
+    }
+}
+
+function setAriete1Running(isRunning) {
+    sendCommandPayload({
+        cmd_ariete_1: { is_running: isRunning },
+        target_running: isRunning
+    });
+}
+
+function saveAriete1Config() {
+    const ton = parseInt(document.getElementById("a1_timeOn").value) || 5;
+    const toff = parseInt(document.getElementById("a1_timeOff").value) || 5;
+
+    sendCommandPayload({
+        cmd_ariete_1: { time_on: ton, time_off: toff }
+    });
+}
+
+function setPolarity1Running(isRunning) {
+    sendCommandPayload({
+        cmd_polarity_1: { is_running: isRunning }
+    });
+}
+
+function convertToSeconds(value, unit) {
+    const val = parseInt(value) || 1;
+    if (unit === "hours") return val * 3600;
+    if (unit === "min") return val * 60;
+    return val;
+}
+
+function savePolarity1Config() {
+    const timeAVal = document.getElementById("p1_timeA").value;
+    const unitA = document.getElementById("p1_unitA").value;
+    const timeBVal = document.getElementById("p1_timeB").value;
+    const unitB = document.getElementById("p1_unitB").value;
+    const timeDead = parseInt(document.getElementById("p1_timeDead").value) || 3;
+
+    const timeASec = convertToSeconds(timeAVal, unitA);
+    const timeBSec = convertToSeconds(timeBVal, unitB);
+
+    sendCommandPayload({
+        cmd_polarity_1: { time_a: timeASec, time_b: timeBSec, time_dead: timeDead }
+    });
+}
+
+function setPolarity2Running(isRunning) {
+    sendCommandPayload({
+        cmd_polarity_2: { is_running: isRunning }
+    });
+}
+
+function savePolarity2Config() {
+    const timeAVal = document.getElementById("p2_timeA").value;
+    const unitA = document.getElementById("p2_unitA").value;
+    const timeBVal = document.getElementById("p2_timeB").value;
+    const unitB = document.getElementById("p2_unitB").value;
+    const timeDead = parseInt(document.getElementById("p2_timeDead").value) || 3;
+
+    const timeASec = convertToSeconds(timeAVal, unitA);
+    const timeBSec = convertToSeconds(timeBVal, unitB);
+
+    sendCommandPayload({
+        cmd_polarity_2: { time_a: timeASec, time_b: timeBSec, time_dead: timeDead }
+    });
 }

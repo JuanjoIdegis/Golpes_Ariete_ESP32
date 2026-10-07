@@ -1,6 +1,10 @@
 /*
- * ESP32 Cycle Controller - Conexión AWS Cloud (Multi-Dispositivo por Planta)
- * Incluye Wi-Fi Manager inteligente (Portal Cautivo de Configuración de Wi-Fi)
+ * ESP32 Multi-Channel Controller v5.0 - Ariete + Inversión de Polaridad Dual
+ * Soporta:
+ * 1. Salida Golpe de Ariete (GPIO 2)
+ * 2. Canal 1 Inversión de Polaridad (GPIO 4 Relé A, GPIO 16 Relé B)
+ * 3. Canal 2 Inversión de Polaridad (GPIO 17 Relé A, GPIO 18 Relé B)
+ * 4. Portal Cautivo Wi-Fi & Sincronización AWS Cloud
  */
 
 #include <WiFi.h>
@@ -13,27 +17,238 @@
 #include <DNSServer.h>
 #include "config.h"
 
-enum SystemState {
-    STATE_STOPPED = 0,
-    STATE_ON = 1,
-    STATE_OFF = 2,
-    STATE_NO_LEVEL = 3
+// Estados de Inversión de Polaridad
+enum PolarityState {
+    POL_STOPPED = 0,
+    POL_A = 1,          // Relé A (Directa)
+    POL_DEADBAND_1 = 2, // Pausa de seguridad A -> B
+    POL_B = 3,          // Relé B (Inversa)
+    POL_DEADBAND_2 = 4  // Pausa de seguridad B -> A
 };
 
-// Configuración de Identificador de Dispositivo por Planta
+// Estados del Canal Golpe de Ariete
+enum ArieteState {
+    ARIETE_STOPPED = 0,
+    ARIETE_ON = 1,
+    ARIETE_OFF = 2,
+    ARIETE_NO_LEVEL = 3
+};
+
+// Estructura para Canales de Inversión de Polaridad
+struct PolarityChannel {
+    uint8_t pinA;
+    uint8_t pinB;
+    bool isRunning;
+    PolarityState state;
+    unsigned long timeA_sec;    // Tiempo en Polaridad A
+    unsigned long timeB_sec;    // Tiempo en Polaridad B
+    unsigned long deadband_sec; // Pausa de seguridad entre cambios (Banda Muerta)
+    unsigned long lastChangeMs;
+    unsigned long cycleCount;
+
+    void init(uint8_t pA, uint8_t pB) {
+        pinA = pA;
+        pinB = pB;
+        pinMode(pinA, OUTPUT);
+        pinMode(pinB, OUTPUT);
+        setRelays(false, false);
+        isRunning = false;
+        state = POL_STOPPED;
+        timeA_sec = 60;
+        timeB_sec = 60;
+        deadband_sec = 3;
+        lastChangeMs = millis();
+        cycleCount = 0;
+    }
+
+    void setRelays(bool aOn, bool bOn) {
+        // Garantía de Protección de Hardware: NUNCA ambos relés ON simultáneamente
+        if (aOn && bOn) {
+            digitalWrite(pinA, LOW);
+            digitalWrite(pinB, LOW);
+            return;
+        }
+        digitalWrite(pinA, aOn ? HIGH : LOW);
+        digitalWrite(pinB, bOn ? HIGH : LOW);
+    }
+
+    void update() {
+        if (!isRunning) {
+            if (state != POL_STOPPED) {
+                state = POL_STOPPED;
+                setRelays(false, false);
+            }
+            return;
+        }
+
+        unsigned long currentMs = millis();
+        unsigned long elapsedMs = currentMs - lastChangeMs;
+
+        switch (state) {
+            case POL_STOPPED:
+                state = POL_A;
+                setRelays(true, false);
+                lastChangeMs = currentMs;
+                break;
+
+            case POL_A:
+                if (elapsedMs >= timeA_sec * 1000UL) {
+                    state = POL_DEADBAND_1;
+                    setRelays(false, false);
+                    lastChangeMs = currentMs;
+                }
+                break;
+
+            case POL_DEADBAND_1:
+                if (elapsedMs >= deadband_sec * 1000UL) {
+                    state = POL_B;
+                    setRelays(false, true);
+                    lastChangeMs = currentMs;
+                }
+                break;
+
+            case POL_B:
+                if (elapsedMs >= timeB_sec * 1000UL) {
+                    state = POL_DEADBAND_2;
+                    setRelays(false, false);
+                    lastChangeMs = currentMs;
+                }
+                break;
+
+            case POL_DEADBAND_2:
+                if (elapsedMs >= deadband_sec * 1000UL) {
+                    state = POL_A;
+                    setRelays(true, false);
+                    cycleCount++;
+                    lastChangeMs = currentMs;
+                }
+                break;
+        }
+    }
+
+    unsigned long getRemainingSec() {
+        if (!isRunning || state == POL_STOPPED) return 0;
+        unsigned long elapsedSec = (millis() - lastChangeMs) / 1000UL;
+        unsigned long targetSec = 0;
+        if (state == POL_A) targetSec = timeA_sec;
+        else if (state == POL_DEADBAND_1 || state == POL_DEADBAND_2) targetSec = deadband_sec;
+        else if (state == POL_B) targetSec = timeB_sec;
+
+        if (elapsedSec >= targetSec) return 0;
+        return targetSec - elapsedSec;
+    }
+
+    String getStateString() {
+        switch (state) {
+            case POL_STOPPED: return "STOPPED";
+            case POL_A: return "POLARITY_A";
+            case POL_DEADBAND_1: return "DEADBAND";
+            case POL_B: return "POLARITY_B";
+            case POL_DEADBAND_2: return "DEADBAND";
+            default: return "UNKNOWN";
+        }
+    }
+};
+
+// Estructura para Canal Golpe de Ariete
+struct ArieteChannel {
+    uint8_t pinRelay;
+    bool isRunning;
+    ArieteState state;
+    unsigned long timeOnSec;
+    unsigned long timeOffSec;
+    unsigned long lastChangeMs;
+    unsigned long cycleCount;
+
+    void init(uint8_t pin) {
+        pinRelay = pin;
+        pinMode(pinRelay, OUTPUT);
+        digitalWrite(pinRelay, LOW);
+        isRunning = false;
+        state = ARIETE_STOPPED;
+        timeOnSec = 5;
+        timeOffSec = 5;
+        lastChangeMs = millis();
+        cycleCount = 0;
+    }
+
+    void update(bool hasLevel, bool useSensor) {
+        if (useSensor && !hasLevel) {
+            if (state != ARIETE_NO_LEVEL) {
+                state = ARIETE_NO_LEVEL;
+                digitalWrite(pinRelay, LOW);
+            }
+            return;
+        }
+
+        if (!isRunning) {
+            if (state != ARIETE_STOPPED) {
+                state = ARIETE_STOPPED;
+                digitalWrite(pinRelay, LOW);
+            }
+            return;
+        }
+
+        unsigned long currentMs = millis();
+        unsigned long elapsedMs = currentMs - lastChangeMs;
+
+        switch (state) {
+            case ARIETE_STOPPED:
+            case ARIETE_NO_LEVEL:
+                state = ARIETE_ON;
+                digitalWrite(pinRelay, HIGH);
+                lastChangeMs = currentMs;
+                break;
+
+            case ARIETE_ON:
+                if (elapsedMs >= timeOnSec * 1000UL) {
+                    state = ARIETE_OFF;
+                    digitalWrite(pinRelay, LOW);
+                    lastChangeMs = currentMs;
+                }
+                break;
+
+            case ARIETE_OFF:
+                if (elapsedMs >= timeOffSec * 1000UL) {
+                    state = ARIETE_ON;
+                    digitalWrite(pinRelay, HIGH);
+                    cycleCount++;
+                    lastChangeMs = currentMs;
+                }
+                break;
+        }
+    }
+
+    unsigned long getRemainingSec() {
+        if (!isRunning || state == ARIETE_STOPPED || state == ARIETE_NO_LEVEL) return 0;
+        unsigned long elapsedSec = (millis() - lastChangeMs) / 1000UL;
+        unsigned long targetSec = (state == ARIETE_ON) ? timeOnSec : timeOffSec;
+        if (elapsedSec >= targetSec) return 0;
+        return targetSec - elapsedSec;
+    }
+
+    String getStateString() {
+        switch (state) {
+            case ARIETE_STOPPED: return "STOPPED";
+            case ARIETE_ON: return "ON";
+            case ARIETE_OFF: return "OFF";
+            case ARIETE_NO_LEVEL: return "NO_LEVEL";
+            default: return "UNKNOWN";
+        }
+    }
+};
+
+// Instancias Globales
 String deviceId = "esp32_01"; 
-String firmwareVer = "v4.5";
+String firmwareVer = "v5.0";
 
-SystemState currentState = STATE_STOPPED;
-unsigned long timeOnSec = 5;      
-unsigned long timeOffSec = 5;     
-unsigned long cycleCount = 0;     
-bool isRunning = false;           
-bool hasLevel = true;             
-bool useLevelSensor = false;      
+ArieteChannel ariete1;
+PolarityChannel polarity1;
+PolarityChannel polarity2;
+
+bool hasLevel = true;
+bool useLevelSensor = false;
 unsigned long syncIntervalMs = AWS_SYNC_INTERVAL_MS;
-
-unsigned long lastStateChangeMs = 0;
 unsigned long lastAwsSyncMs = 0;
 
 Preferences preferences;
@@ -42,12 +257,9 @@ DNSServer dnsServer;
 bool apPortalActive = false;
 
 void initHardware();
-void setRelayState(bool turnOn);
 bool checkLevelSensor();
 void loadSettingsFromNVS();
-void saveCycleCountToNVS();
 void saveSettingsToNVS();
-void handleCycleStateMachine();
 void syncWithAWS();
 void parseAWSResponse(String payload);
 void startWiFiPortal();
@@ -57,14 +269,13 @@ void setup() {
     Serial.begin(115200);
     delay(500);
 
-    Serial.println("\n=== ESP32 Cycle Controller v4.0 (text/plain fix) ===");
-    Serial.printf("=== Sync interval: %lu ms | Endpoint: %s\n", (unsigned long)AWS_SYNC_INTERVAL_MS, AWS_API_ENDPOINT);
-    Serial.println("====================================================");
+    Serial.println("\n=== ESP32 Multi-Channel Controller v5.0 ===");
+    Serial.printf("=== Endpoint AWS: %s\n", AWS_API_ENDPOINT);
 
     initHardware();
     loadSettingsFromNVS();
 
-    // Intentar conectar a la Wi-Fi guardada o por defecto
+    // Conexión Wi-Fi
     preferences.begin("wifi_config", true);
     String storedSsid = preferences.getString("ssid", WIFI_SSID);
     String storedPass = preferences.getString("pass", WIFI_PASSWORD);
@@ -73,7 +284,6 @@ void setup() {
     if (storedSsid.length() == 0) storedSsid = WIFI_SSID;
     if (storedPass.length() == 0) storedPass = WIFI_PASSWORD;
 
-    // Iniciar siempre Punto de Acceso (AP) para poder reconfigurar Wi-Fi en cualquier momento
     WiFi.mode(WIFI_AP_STA);
     WiFi.setAutoReconnect(true);
     String apName = "Config-WiFi-" + deviceId;
@@ -82,7 +292,6 @@ void setup() {
     WiFi.begin(storedSsid.c_str(), storedPass.c_str());
     Serial.print("Conectando a Wi-Fi: ");
     Serial.println(storedSsid);
-    Serial.printf("Punto de acceso propio activado: %s (IP AP: %s)\n", apName.c_str(), WiFi.softAPIP().toString().c_str());
 
     int attempts = 0;
     while (WiFi.status() != WL_CONNECTED && attempts < 20) {
@@ -92,15 +301,12 @@ void setup() {
     }
 
     if (WiFi.status() == WL_CONNECTED) {
-        Serial.println("\n[Wi-Fi] Conectado exitosamente!");
-        Serial.print("[Wi-Fi] IP Local: ");
-        Serial.println(WiFi.localIP());
+        Serial.println("\n[Wi-Fi] Conectado exitosamente! IP: " + WiFi.localIP().toString());
     } else {
-        Serial.println("\n[Wi-Fi] No se pudo conectar a la red router. El Portal Cautivo sigue disponible.");
+        Serial.println("\n[Wi-Fi] Modo AP activo para configuración.");
     }
 
     startWiFiPortal();
-    lastStateChangeMs = millis();
 }
 
 void loop() {
@@ -108,89 +314,36 @@ void loop() {
         dnsServer.processNextRequest();
         server.handleClient();
     }
-    
-    hasLevel = checkLevelSensor();
-    handleCycleStateMachine();
 
+    hasLevel = checkLevelSensor();
+
+    // Actualizar máquinas de estado independientes
+    ariete1.update(hasLevel, useLevelSensor);
+    polarity1.update();
+    polarity2.update();
+
+    // Sincronización con AWS Cloud
     if (millis() - lastAwsSyncMs >= syncIntervalMs) {
         lastAwsSyncMs = millis();
         if (WiFi.status() == WL_CONNECTED) {
             syncWithAWS();
         } else {
             static unsigned long lastReconnectMs = 0;
-            if (millis() - lastReconnectMs >= 10000) { // Reintentar cada 10s sin apagar el AP
+            if (millis() - lastReconnectMs >= 10000) {
                 lastReconnectMs = millis();
-                Serial.println("[Wi-Fi] Reintentando conexión con router...");
                 WiFi.reconnect();
             }
         }
     }
 }
 
-void startWiFiPortal() {
-    apPortalActive = true;
-    String apName = "Config-WiFi-" + deviceId;
-
-    // Iniciar servidor DNS cautivo en puerto 53 para redirigir cualquier dominio a 192.168.4.1
-    dnsServer.start(53, "*", WiFi.softAPIP());
-
-    Serial.println("=======================================================");
-    Serial.printf(" Portal de Configuración Wi-Fi Activo: %s\n", apName.c_str());
-    Serial.printf(" Entra a: http://%s para cambiar la red Wi-Fi\n", WiFi.softAPIP().toString().c_str());
-    Serial.println("=======================================================");
-
-    server.on("/", HTTP_GET, []() {
-        String html = R"rawliteral(
-<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Configurar Wi-Fi ESP32</title>
-<script src="https://cdn.tailwindcss.com"></script></head>
-<body class="bg-slate-900 text-white p-6 font-sans max-w-md mx-auto">
-<h2 class="text-xl font-bold mb-4 text-blue-400">Configurar Red Wi-Fi ESP32</h2>
-<form action="/save_wifi" method="POST" class="space-y-4">
-<div><label class="block text-sm">Nombre Wi-Fi (SSID)</label>
-<input type="text" name="ssid" required class="w-full bg-slate-800 p-3 rounded border border-slate-700 font-bold"></div>
-<div><label class="block text-sm">Contraseña</label>
-<input type="password" name="pass" class="w-full bg-slate-800 p-3 rounded border border-slate-700 font-bold"></div>
-<button type="submit" class="w-full py-3 bg-blue-600 hover:bg-blue-500 font-bold rounded-xl">Guardar y Reiniciar</button>
-</form></body></html>
-)rawliteral";
-        server.send(200, "text/html", html);
-    });
-
-    server.onNotFound([]() {
-        server.sendHeader("Location", String("http://") + WiFi.softAPIP().toString(), true);
-        server.send(302, "text/plain", "");
-    });
-
-    server.on("/save_wifi", HTTP_POST, []() {
-        String newSsid = server.arg("ssid");
-        String newPass = server.arg("pass");
-
-        preferences.begin("wifi_config", false);
-        preferences.putString("ssid", newSsid);
-        preferences.putString("pass", newPass);
-        preferences.end();
-
-        server.send(200, "text/html", "<h2>Wi-Fi Guardado! Reiniciando ESP32...</h2>");
-        delay(2000);
-        ESP.restart();
-    });
-
-    server.begin();
-}
-
 void initHardware() {
-    pinMode(RELAY_PIN, OUTPUT);
-    setRelayState(false);
+    ariete1.init(ARIETE_1_RELAY_PIN);
+    polarity1.init(POLARITY_1_RELAY_A_PIN, POLARITY_1_RELAY_B_PIN);
+    polarity2.init(POLARITY_2_RELAY_A_PIN, POLARITY_2_RELAY_B_PIN);
+
     pinMode(LEVEL_SENSOR_PIN, INPUT_PULLDOWN);
     hasLevel = checkLevelSensor();
-}
-
-void setRelayState(bool turnOn) {
-    if (RELAY_ACTIVE_HIGH) {
-        digitalWrite(RELAY_PIN, turnOn ? HIGH : LOW);
-    } else {
-        digitalWrite(RELAY_PIN, turnOn ? LOW : HIGH);
-    }
 }
 
 bool checkLevelSensor() {
@@ -199,291 +352,240 @@ bool checkLevelSensor() {
 }
 
 void loadSettingsFromNVS() {
-    preferences.begin("cycle_ctrl", false);
-    timeOnSec = preferences.getULong("time_on", 5);
-    timeOffSec = preferences.getULong("time_off", 5);
-    cycleCount = preferences.getULong("cycles", 0);
-    isRunning = preferences.getBool("running", false);
+    preferences.begin("multi_ctrl", false);
+
+    // Cargar Ariete 1
+    ariete1.timeOnSec = preferences.getULong("a1_ton", 5);
+    ariete1.timeOffSec = preferences.getULong("a1_toff", 5);
+    ariete1.cycleCount = preferences.getULong("a1_cyc", 0);
+    ariete1.isRunning = preferences.getBool("a1_run", false);
+
+    // Cargar Polaridad 1
+    polarity1.timeA_sec = preferences.getULong("p1_ta", 25200);   // 7 horas por defecto
+    polarity1.timeB_sec = preferences.getULong("p1_tb", 25200);
+    polarity1.deadband_sec = preferences.getULong("p1_td", 3);
+    polarity1.cycleCount = preferences.getULong("p1_cyc", 0);
+    polarity1.isRunning = preferences.getBool("p1_run", false);
+
+    // Cargar Polaridad 2
+    polarity2.timeA_sec = preferences.getULong("p2_ta", 60);      // 1 minuto por defecto
+    polarity2.timeB_sec = preferences.getULong("p2_tb", 60);
+    polarity2.deadband_sec = preferences.getULong("p2_td", 3);
+    polarity2.cycleCount = preferences.getULong("p2_cyc", 0);
+    polarity2.isRunning = preferences.getBool("p2_run", false);
+
     useLevelSensor = preferences.getBool("use_sensor", false);
-    deviceId = preferences.getString("dev_id", "esp32_01");
-    preferences.end();
 
-    currentState = isRunning ? STATE_ON : STATE_STOPPED;
-}
+    // Cargar / Generar Device ID único basado en MAC
+    String savedId = preferences.getString("dev_id", "");
+    if (savedId.length() > 0) {
+        deviceId = savedId;
+    } else {
+        uint8_t mac[6];
+        WiFi.macAddress(mac);
+        char autoId[32];
+        snprintf(autoId, sizeof(autoId), "esp32_%02x%02x", mac[4], mac[5]);
+        deviceId = String(autoId);
+    }
 
-void saveCycleCountToNVS() {
-    preferences.begin("cycle_ctrl", false);
-    preferences.putULong("cycles", cycleCount);
     preferences.end();
 }
 
 void saveSettingsToNVS() {
-    preferences.begin("cycle_ctrl", false);
-    preferences.putULong("time_on", timeOnSec);
-    preferences.putULong("time_off", timeOffSec);
-    preferences.putBool("running", isRunning);
+    preferences.begin("multi_ctrl", false);
+    
+    preferences.putULong("a1_ton", ariete1.timeOnSec);
+    preferences.putULong("a1_toff", ariete1.timeOffSec);
+    preferences.putULong("a1_cyc", ariete1.cycleCount);
+    preferences.putBool("a1_run", ariete1.isRunning);
+
+    preferences.putULong("p1_ta", polarity1.timeA_sec);
+    preferences.putULong("p1_tb", polarity1.timeB_sec);
+    preferences.putULong("p1_td", polarity1.deadband_sec);
+    preferences.putULong("p1_cyc", polarity1.cycleCount);
+    preferences.putBool("p1_run", polarity1.isRunning);
+
+    preferences.putULong("p2_ta", polarity2.timeA_sec);
+    preferences.putULong("p2_tb", polarity2.timeB_sec);
+    preferences.putULong("p2_td", polarity2.deadband_sec);
+    preferences.putULong("p2_cyc", polarity2.cycleCount);
+    preferences.putBool("p2_run", polarity2.isRunning);
+
     preferences.putBool("use_sensor", useLevelSensor);
     preferences.end();
 }
 
-void handleCycleStateMachine() {
-    if (useLevelSensor && !hasLevel) {
-        if (currentState != STATE_NO_LEVEL) {
-            currentState = STATE_NO_LEVEL;
-            setRelayState(false);
-            Serial.println("[ALERTA NIVEL] Sensor XKC-Y25 sin nivel! Parando relé en OFF.");
-        }
-        return;
-    }
-
-    if (!isRunning) {
-        if (currentState != STATE_STOPPED) {
-            currentState = STATE_STOPPED;
-            setRelayState(false);
-            Serial.println("[Estado] Sistema DETENIDO por usuario.");
-        }
-        return;
-    }
-
-    unsigned long currentMs = millis();
-    unsigned long elapsedMs = currentMs - lastStateChangeMs;
-
-    switch (currentState) {
-        case STATE_STOPPED:
-        case STATE_NO_LEVEL:
-            currentState = STATE_ON;
-            lastStateChangeMs = currentMs;
-            setRelayState(true);
-            Serial.println("[Estado] Reanudando ciclo -> RELÉ ENCENDIDO (ON)");
-            break;
-
-        case STATE_ON:
-            setRelayState(true);
-            if (elapsedMs >= (timeOnSec * 1000UL)) {
-                currentState = STATE_OFF;
-                lastStateChangeMs = currentMs;
-                setRelayState(false);
-                Serial.println("[Estado] Tiempo ON completado -> RELÉ APAGADO (OFF)");
-            }
-            break;
-
-        case STATE_OFF:
-            setRelayState(false);
-            if (elapsedMs >= (timeOffSec * 1000UL)) {
-                cycleCount++;
-                saveCycleCountToNVS();
-                Serial.printf("[Estado] Ciclo completado! Total de ciclos: %lu\n", cycleCount);
-
-                currentState = STATE_ON;
-                lastStateChangeMs = currentMs;
-                setRelayState(true);
-                Serial.println("[Estado] Reiniciando ciclo -> RELÉ ENCENDIDO (ON)");
-            }
-            break;
-    }
-}
-
 void syncWithAWS() {
     WiFiClientSecure client;
-    client.setInsecure(); // Permitir handshake SSL HTTPS con AWS API Gateway
+    client.setInsecure();
+
     HTTPClient http;
-    String url = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
-    http.begin(client, url);
-    http.setTimeout(1500); // Max 1.5s de timeout para evitar congelar la máquina de estados del relé
-    http.addHeader("Content-Type", "text/plain"); // text/plain evita pre-procesado del body en API Gateway HTTP v2
-    http.addHeader("x-api-key", AWS_API_KEY);
+    String fullUrl = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
 
-    unsigned long remainingSec = 0;
-    unsigned long elapsedSec = (millis() - lastStateChangeMs) / 1000UL;
+    if (!http.begin(client, fullUrl)) return;
 
-    if (currentState == STATE_ON) {
-        remainingSec = (elapsedSec < timeOnSec) ? (timeOnSec - elapsedSec) : 0;
-    } else if (currentState == STATE_OFF) {
-        remainingSec = (elapsedSec < timeOffSec) ? (timeOffSec - elapsedSec) : 0;
-    }
+    http.addHeader("Content-Type", "application/json");
 
-    String stateStr = "STOPPED";
-    if (currentState == STATE_ON) stateStr = "ON";
-    else if (currentState == STATE_OFF) stateStr = "OFF";
-    else if (currentState == STATE_NO_LEVEL) stateStr = "NO_LEVEL";
-
-    StaticJsonDocument<256> doc;
-    doc["client_type"] = "esp32";
+    StaticJsonDocument<1024> doc;
     doc["device_id"] = deviceId;
     doc["firmware_ver"] = firmwareVer;
-    doc["state"] = stateStr;
-    doc["is_running"] = isRunning;
     doc["has_level"] = hasLevel;
     doc["use_sensor"] = useLevelSensor;
-    doc["time_on"] = timeOnSec;
-    doc["time_off"] = timeOffSec;
-    doc["cycle_count"] = cycleCount;
-    doc["remaining_sec"] = remainingSec;
 
-    String requestBody;
-    serializeJson(doc, requestBody);
+    // Ariete 1
+    JsonObject a1 = doc.createNestedObject("ariete_1");
+    a1["is_running"] = ariete1.isRunning;
+    a1["state"] = ariete1.getStateString();
+    a1["time_on"] = ariete1.timeOnSec;
+    a1["time_off"] = ariete1.timeOffSec;
+    a1["cycle_count"] = ariete1.cycleCount;
+    a1["remaining_sec"] = ariete1.getRemainingSec();
 
-    Serial.println("[AWS] Enviando telemetría...");
-    int httpResponseCode = http.POST(requestBody);
+    // Polaridad 1
+    JsonObject p1 = doc.createNestedObject("polarity_1");
+    p1["is_running"] = polarity1.isRunning;
+    p1["state"] = polarity1.getStateString();
+    p1["time_a"] = polarity1.timeA_sec;
+    p1["time_dead"] = polarity1.deadband_sec;
+    p1["time_b"] = polarity1.timeB_sec;
+    p1["cycle_count"] = polarity1.cycleCount;
+    p1["remaining_sec"] = polarity1.getRemainingSec();
 
-    if (httpResponseCode > 0) {
-        String response = http.getString();
-        Serial.printf("[AWS OK] Respuesta recibida (Código %d): %s\n", httpResponseCode, response.c_str());
-        if (httpResponseCode == 200) {
-            parseAWSResponse(response);
+    // Polaridad 2
+    JsonObject p2 = doc.createNestedObject("polarity_2");
+    p2["is_running"] = polarity2.isRunning;
+    p2["state"] = polarity2.getStateString();
+    p2["time_a"] = polarity2.timeA_sec;
+    p2["time_dead"] = polarity2.deadband_sec;
+    p2["time_b"] = polarity2.timeB_sec;
+    p2["cycle_count"] = polarity2.cycleCount;
+    p2["remaining_sec"] = polarity2.getRemainingSec();
+
+    String jsonOutput;
+    serializeJson(doc, jsonOutput);
+
+    int httpCode = http.POST(jsonOutput);
+    if (httpCode > 0) {
+        String payload = http.getString();
+        if (httpCode == 200) {
+            parseAWSResponse(payload);
         }
-    } else {
-        Serial.printf("[AWS Error] Petición fallida: %s (código: %d)\n", http.errorToString(httpResponseCode).c_str(), httpResponseCode);
     }
-
     http.end();
 }
 
 void parseAWSResponse(String payload) {
-    StaticJsonDocument<512> doc;
+    StaticJsonDocument<1024> doc;
     DeserializationError error = deserializeJson(doc, payload);
-
     if (error) return;
 
-    bool updated = false;
+    bool needsSave = false;
 
-    if (doc.containsKey("cmd_reset_cycles") && doc["cmd_reset_cycles"].as<bool>() == true) {
-        cycleCount = 0;
-        saveCycleCountToNVS();
-        Serial.println("[AWS Cmd] Contador de ciclos reseteado a 0.");
+    // Configuración Ariete 1
+    if (doc.containsKey("cmd_ariete_1")) {
+        JsonObject a1Cmd = doc["cmd_ariete_1"];
+        if (a1Cmd.containsKey("is_running")) ariete1.isRunning = a1Cmd["is_running"];
+        if (a1Cmd.containsKey("time_on")) ariete1.timeOnSec = a1Cmd["time_on"];
+        if (a1Cmd.containsKey("time_off")) ariete1.timeOffSec = a1Cmd["time_off"];
+        if (a1Cmd.containsKey("reset_cycles") && a1Cmd["reset_cycles"].as<bool>()) ariete1.cycleCount = 0;
+        needsSave = true;
+    }
+
+    // Configuración Polaridad 1
+    if (doc.containsKey("cmd_polarity_1")) {
+        JsonObject p1Cmd = doc["cmd_polarity_1"];
+        if (p1Cmd.containsKey("is_running")) polarity1.isRunning = p1Cmd["is_running"];
+        if (p1Cmd.containsKey("time_a")) polarity1.timeA_sec = p1Cmd["time_a"];
+        if (p1Cmd.containsKey("time_dead")) polarity1.deadband_sec = p1Cmd["time_dead"];
+        if (p1Cmd.containsKey("time_b")) polarity1.timeB_sec = p1Cmd["time_b"];
+        if (p1Cmd.containsKey("reset_cycles") && p1Cmd["reset_cycles"].as<bool>()) polarity1.cycleCount = 0;
+        needsSave = true;
+    }
+
+    // Configuración Polaridad 2
+    if (doc.containsKey("cmd_polarity_2")) {
+        JsonObject p2Cmd = doc["cmd_polarity_2"];
+        if (p2Cmd.containsKey("is_running")) polarity2.isRunning = p2Cmd["is_running"];
+        if (p2Cmd.containsKey("time_a")) polarity2.timeA_sec = p2Cmd["time_a"];
+        if (p2Cmd.containsKey("time_dead")) polarity2.deadband_sec = p2Cmd["time_dead"];
+        if (p2Cmd.containsKey("time_b")) polarity2.timeB_sec = p2Cmd["time_b"];
+        if (p2Cmd.containsKey("reset_cycles") && p2Cmd["reset_cycles"].as<bool>()) polarity2.cycleCount = 0;
+        needsSave = true;
     }
 
     if (doc.containsKey("use_sensor")) {
-        bool newSensorSetting = doc["use_sensor"].as<bool>();
-        if (newSensorSetting != useLevelSensor) {
-            useLevelSensor = newSensorSetting;
-            updated = true;
-        }
+        useLevelSensor = doc["use_sensor"];
+        needsSave = true;
     }
 
-    if (doc.containsKey("target_time_on")) {
-        unsigned long newOn = doc["target_time_on"].as<unsigned long>();
-        if (newOn != timeOnSec && newOn > 0) {
-            timeOnSec = newOn;
-            updated = true;
-        }
+    if (needsSave) {
+        saveSettingsToNVS();
     }
 
-    if (doc.containsKey("target_time_off")) {
-        unsigned long newOff = doc["target_time_off"].as<unsigned long>();
-        if (newOff != timeOffSec && newOff > 0) {
-            timeOffSec = newOff;
-            updated = true;
-        }
-    }
-
-    if (doc.containsKey("target_running")) {
-        bool newRunning = doc["target_running"].as<bool>();
-        if (newRunning != isRunning) {
-            isRunning = newRunning;
-            updated = true;
-            if (isRunning) {
-                currentState = (useLevelSensor && !hasLevel) ? STATE_NO_LEVEL : STATE_ON;
-                lastStateChangeMs = millis();
-            } else {
-                currentState = STATE_STOPPED;
-                setRelayState(false);
+    // Orden de actualización OTA por aire
+    if (doc.containsKey("cmd_ota_update") && doc["cmd_ota_update"].as<bool>()) {
+        if (doc.containsKey("ota_url")) {
+            String url = doc["ota_url"].as<String>();
+            if (url.length() > 0) {
+                performHTTPUpdate(url);
             }
         }
     }
-
-    if (doc.containsKey("sync_interval_ms")) {
-        unsigned long newSync = doc["sync_interval_ms"].as<unsigned long>();
-        if (newSync >= 1000 && newSync <= 60000) {
-            syncIntervalMs = newSync;
-        }
-    }
-
-    if (doc.containsKey("cmd_ota_update") && doc["cmd_ota_update"].as<bool>() == true) {
-        String otaUrl = doc["ota_url"].as<String>();
-        if (otaUrl.length() > 5) {
-            Serial.printf("[OTA] Recibida orden de actualización desde: %s\n", otaUrl.c_str());
-            performHTTPUpdate(otaUrl);
-        }
-    }
-
-    if (updated) {
-        saveSettingsToNVS();
-    }
 }
 
-void sendOTAProgressToAWS(int percent, String statusMsg) {
-    WiFiClientSecure client;
-    client.setInsecure();
-    HTTPClient http;
-    String url = String(AWS_API_ENDPOINT) + "?api_key=" + String(AWS_API_KEY);
-    http.begin(client, url);
-    http.setTimeout(1500);
-    http.addHeader("Content-Type", "text/plain");
-    http.addHeader("x-api-key", AWS_API_KEY);
+void startWiFiPortal() {
+    apPortalActive = true;
+    String apName = "Config-WiFi-" + deviceId;
+    dnsServer.start(53, "*", WiFi.softAPIP());
 
-    StaticJsonDocument<256> doc;
-    doc["client_type"] = "esp32";
-    doc["device_id"] = deviceId;
-    doc["firmware_ver"] = firmwareVer;
-    doc["state"] = "UPDATING_OTA";
-    doc["ota_progress"] = percent;
-    doc["ota_status"] = statusMsg;
+    server.on("/", HTTP_GET, []() {
+        String html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>Configurar Wi-Fi ESP32</title>"
+                      "<script src='https://cdn.tailwindcss.com'></script></head>"
+                      "<body class='bg-slate-900 text-white p-6 max-w-md mx-auto'>"
+                      "<h2 class='text-xl font-bold mb-4 text-blue-400'>Configuración ESP32 v5.0 Multi-Canal</h2>"
+                      "<form action='/save_wifi' method='POST' class='space-y-4'>"
+                      "<div><label>Nombre Wi-Fi (SSID)</label><input type='text' name='ssid' required class='w-full bg-slate-800 p-3 rounded'></div>"
+                      "<div><label>Contraseña</label><input type='password' name='pass' class='w-full bg-slate-800 p-3 rounded'></div>"
+                      "<button type='submit' class='w-full py-3 bg-blue-600 font-bold rounded-xl'>Guardar y Reiniciar</button>"
+                      "</form></body></html>";
+        server.send(200, "text/html", html);
+    });
 
-    String body;
-    serializeJson(doc, body);
-    http.POST(body);
-    http.end();
+    server.on("/save_wifi", HTTP_POST, []() {
+        String newSsid = server.arg("ssid");
+        String newPass = server.arg("pass");
+        preferences.begin("wifi_config", false);
+        preferences.putString("ssid", newSsid);
+        preferences.putString("pass", newPass);
+        preferences.end();
+        server.send(200, "text/html", "<h2>Wi-Fi Guardado! Reiniciando...</h2>");
+        delay(2000);
+        ESP.restart();
+    });
+
+    server.begin();
 }
 
 void performHTTPUpdate(String otaUrl) {
     WiFiClientSecure client;
-    client.setInsecure(); // Permitir HTTPS sin validación estricta de CA
+    client.setInsecure();
+
     HTTPClient http;
-
-    Serial.printf("[OTA] Descargando desde: %s\n", otaUrl.c_str());
-    sendOTAProgressToAWS(5, "Iniciando descarga por Wi-Fi...");
-
-    http.begin(client, otaUrl);
-    http.setTimeout(12000);
     http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    if (!http.begin(client, otaUrl)) return;
 
     int httpCode = http.GET();
     if (httpCode == HTTP_CODE_OK) {
         int contentLength = http.getSize();
-        if (contentLength > 0) {
-            if (Update.begin(contentLength)) {
-                WiFiClient* stream = http.getStreamPtr();
-                size_t written = Update.writeStream(*stream);
-
-                if (written == (size_t)contentLength) {
-                    if (Update.end(true)) { // true para finalizar flasheo OK
-                        Serial.println("[OTA Exito] ¡Firmware flasheado correctamente!");
-                        sendOTAProgressToAWS(100, "¡Instalado con éxito! Reiniciando...");
-                        http.end();
-                        delay(1000);
-                        ESP.restart();
-                        return;
-                    } else {
-                        Serial.printf("[OTA Error] Error en Update.end(): %s\n", Update.errorString());
-                        sendOTAProgressToAWS(0, "Error al finalizar flasheo");
-                    }
-                } else {
-                    Serial.printf("[OTA Error] Bytes incompletos: %d / %d\n", (int)written, contentLength);
-                    sendOTAProgressToAWS(0, "Descarga incompleta");
-                }
-            } else {
-                Serial.println("[OTA Error] Memoria insuficiente para Update.begin()");
-                sendOTAProgressToAWS(0, "Espacio flash insuficiente");
+        if (contentLength > 0 && Update.begin(contentLength)) {
+            WiFiClient* stream = http.getStreamPtr();
+            size_t written = Update.writeStream(*stream);
+            if (written == contentLength && Update.end(true)) {
+                http.end();
+                delay(1000);
+                ESP.restart();
             }
-        } else {
-            Serial.println("[OTA Error] Tamaño de contenido inválido (Content-Length)");
-            sendOTAProgressToAWS(0, "Tamaño de archivo inválido");
         }
-    } else {
-        Serial.printf("[OTA Error] Error HTTP GET: %d (%s)\n", httpCode, http.errorToString(httpCode).c_str());
-        sendOTAProgressToAWS(0, "Error HTTP " + String(httpCode));
     }
-
     http.end();
 }
