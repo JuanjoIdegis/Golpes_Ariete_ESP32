@@ -131,16 +131,29 @@ def lambda_handler(event, context):
                     update_expr.append("#cmd_a1 = :cmd_a1")
                     expr_attr_values[":cmd_a1"] = body["cmd_ariete_1"]
                     expr_attr_names["#cmd_a1"] = "cmd_ariete_1"
+                    if isinstance(body["cmd_ariete_1"], dict) and body["cmd_ariete_1"].get("reset_cycles"):
+                        update_expr.append("cycle_count = :zero, ariete_1.cycle_count = :zero")
+                        expr_attr_values[":zero"] = Decimal("0")
 
                 if "cmd_polarity_1" in body:
                     update_expr.append("#cmd_p1 = :cmd_p1")
                     expr_attr_values[":cmd_p1"] = body["cmd_polarity_1"]
                     expr_attr_names["#cmd_p1"] = "cmd_polarity_1"
+                    if isinstance(body["cmd_polarity_1"], dict):
+                        p1_cmd = body["cmd_polarity_1"]
+                        if p1_cmd.get("reset_totals") or p1_cmd.get("reset_cycles"):
+                            update_expr.append("polarity_1.total_sec_a = :zero, polarity_1.total_sec_b = :zero, polarity_1.total_sec_sum = :zero, polarity_1.cycle_count = :zero")
+                            expr_attr_values[":zero"] = Decimal("0")
 
                 if "cmd_polarity_2" in body:
                     update_expr.append("#cmd_p2 = :cmd_p2")
                     expr_attr_values[":cmd_p2"] = body["cmd_polarity_2"]
                     expr_attr_names["#cmd_p2"] = "cmd_polarity_2"
+                    if isinstance(body["cmd_polarity_2"], dict):
+                        p2_cmd = body["cmd_polarity_2"]
+                        if p2_cmd.get("reset_totals") or p2_cmd.get("reset_cycles"):
+                            update_expr.append("polarity_2.total_sec_a = :zero, polarity_2.total_sec_b = :zero, polarity_2.total_sec_sum = :zero, polarity_2.cycle_count = :zero")
+                            expr_attr_values[":zero"] = Decimal("0")
 
                 run_val = None
                 if isinstance(body.get("cmd_ariete_1"), dict) and "is_running" in body["cmd_ariete_1"]:
@@ -157,6 +170,21 @@ def lambda_handler(event, context):
                     update_expr.append("#t_run = :run_val")
                     expr_attr_values[":run_val"] = run_val
                     expr_attr_names["#t_run"] = "target_running"
+
+                    if run_val is False:
+                        update_expr.append("remaining_sec = :zero, #st = :stop_st")
+                        expr_attr_values[":stop_st"] = "STOPPED"
+                        expr_attr_values[":zero"] = Decimal("0")
+                        expr_attr_names["#st"] = "state"
+                        if "cmd_ariete_1" in body:
+                            update_expr.append("ariete_1.#st = :stop_st, ariete_1.remaining_sec = :zero, ariete_1.is_running = :false_val")
+                            expr_attr_values[":false_val"] = False
+                        if "cmd_polarity_1" in body:
+                            update_expr.append("polarity_1.#st = :stop_st, polarity_1.remaining_sec = :zero, polarity_1.is_running = :false_val")
+                            expr_attr_values[":false_val"] = False
+                        if "cmd_polarity_2" in body:
+                            update_expr.append("polarity_2.#st = :stop_st, polarity_2.remaining_sec = :zero, polarity_2.is_running = :false_val")
+                            expr_attr_values[":false_val"] = False
 
                 if "use_sensor" in body:
                     update_expr.append("use_sensor = :u_sens")
@@ -184,6 +212,8 @@ def lambda_handler(event, context):
                     expr_attr_names["#ota_c"] = "cmd_ota_update"
 
                 if "cmd_reset_cycles" in body:
+                    update_expr.append("cycle_count = :zero, ariete_1.cycle_count = :zero")
+                    expr_attr_values[":zero"] = Decimal("0")
                     update_expr.append("#reset = :reset")
                     expr_attr_values[":reset"] = bool(body["cmd_reset_cycles"])
                     expr_attr_names["#reset"] = "cmd_reset_cycles"

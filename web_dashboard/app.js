@@ -368,11 +368,15 @@ function setAriete1Running(isRunning) {
     if (!currentData.ariete_1) currentData.ariete_1 = {};
     currentData.ariete_1.is_running = isRunning;
     currentData.ariete_1.state = isRunning ? "ON" : "STOPPED";
+    if (!isRunning) currentData.ariete_1.remaining_sec = 0;
+    currentData.is_running = isRunning;
+    currentData.state = isRunning ? "ON" : "STOPPED";
     updateUI(currentData);
 
     sendCommandPayload({
         cmd_ariete_1: { is_running: isRunning },
-        target_running: isRunning
+        target_running: isRunning,
+        is_running: isRunning
     });
 }
 
@@ -387,6 +391,20 @@ function saveAriete1Config() {
     });
 }
 
+function resetAriete1Cycles() {
+    if (confirm("¿Estás seguro de que deseas resetear los ciclos del Golpe de Ariete?")) {
+        if (!currentData.ariete_1) currentData.ariete_1 = {};
+        currentData.ariete_1.cycle_count = 0;
+        currentData.cycle_count = 0;
+        updateUI(currentData);
+
+        sendCommandPayload({
+            cmd_ariete_1: { reset_cycles: true },
+            cmd_reset_cycles: true
+        });
+    }
+}
+
 function setPolarity1Running(isRunning) {
     const select = document.getElementById("deviceSelect");
     if (select && select.value) currentDeviceId = select.value;
@@ -394,6 +412,7 @@ function setPolarity1Running(isRunning) {
     if (!currentData.polarity_1) currentData.polarity_1 = {};
     currentData.polarity_1.is_running = isRunning;
     currentData.polarity_1.state = isRunning ? "POLARITY_A" : "STOPPED";
+    if (!isRunning) currentData.polarity_1.remaining_sec = 0;
     updateUI(currentData);
 
     sendCommandPayload({
@@ -403,8 +422,15 @@ function setPolarity1Running(isRunning) {
 
 function resetPolarity1Totals() {
     if (confirm("¿Estás seguro de que deseas resetear las horas acumuladas de la Polaridad 1?")) {
+        if (!currentData.polarity_1) currentData.polarity_1 = {};
+        currentData.polarity_1.total_sec_a = 0;
+        currentData.polarity_1.total_sec_b = 0;
+        currentData.polarity_1.total_sec_sum = 0;
+        currentData.polarity_1.cycle_count = 0;
+        updateUI(currentData);
+
         sendCommandPayload({
-            cmd_polarity_1: { reset_totals: true }
+            cmd_polarity_1: { reset_totals: true, reset_cycles: true }
         });
     }
 }
@@ -438,6 +464,7 @@ function setPolarity2Running(isRunning) {
     if (!currentData.polarity_2) currentData.polarity_2 = {};
     currentData.polarity_2.is_running = isRunning;
     currentData.polarity_2.state = isRunning ? "POLARITY_A" : "STOPPED";
+    if (!isRunning) currentData.polarity_2.remaining_sec = 0;
     updateUI(currentData);
 
     sendCommandPayload({
@@ -475,8 +502,15 @@ async function deleteCurrentDevice() {
 
 function resetPolarity2Totals() {
     if (confirm("¿Estás seguro de que deseas resetear las horas acumuladas de la Polaridad 2?")) {
+        if (!currentData.polarity_2) currentData.polarity_2 = {};
+        currentData.polarity_2.total_sec_a = 0;
+        currentData.polarity_2.total_sec_b = 0;
+        currentData.polarity_2.total_sec_sum = 0;
+        currentData.polarity_2.cycle_count = 0;
+        updateUI(currentData);
+
         sendCommandPayload({
-            cmd_polarity_2: { reset_totals: true }
+            cmd_polarity_2: { reset_totals: true, reset_cycles: true }
         });
     }
 }
