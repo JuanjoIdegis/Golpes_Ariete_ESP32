@@ -460,8 +460,7 @@ function resetAriete1Cycles() {
         updateUI(currentData);
 
         sendCommandPayload({
-            cmd_ariete_1: { reset_cycles: true },
-            cmd_reset_cycles: true
+            cmd_ariete_1: { reset_cycles: true }
         });
     }
 }
