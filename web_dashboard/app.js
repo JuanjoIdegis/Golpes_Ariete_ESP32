@@ -69,11 +69,14 @@ function renderDeviceSelector() {
     }
 }
 
+let lastLoadedConfigDeviceId = null;
+
 function onDeviceChange() {
     const select = document.getElementById("deviceSelect");
     if (select) {
         select.dataset.userSelected = "true";
         currentDeviceId = select.value;
+        lastLoadedConfigDeviceId = null; // Forzar recarga inmediata de la configuración del nuevo dispositivo
         fetchSystemStatus();
     }
 }
@@ -140,8 +143,66 @@ function formatTime(seconds) {
     return `${h}h ${m}m ${s}`;
 }
 
+function populateConfigInputs(data) {
+    if (!data) return;
+    const isDeviceSwitch = (lastLoadedConfigDeviceId !== currentDeviceId);
+
+    function updateNumField(id, val) {
+        const el = document.getElementById(id);
+        if (el && val !== undefined && val !== null) {
+            if (isDeviceSwitch || document.activeElement !== el) {
+                el.value = val;
+            }
+        }
+    }
+
+    function updateTimeAndUnit(valId, unitId, totalSec) {
+        if (totalSec === undefined || totalSec === null) return;
+        const valEl = document.getElementById(valId);
+        const unitEl = document.getElementById(unitId);
+        if (!valEl || !unitEl) return;
+        if (!isDeviceSwitch && (document.activeElement === valEl || document.activeElement === unitEl)) return;
+
+        let num = parseInt(totalSec, 10);
+        let unit = "sec";
+        if (num >= 3600 && num % 3600 === 0) {
+            num = num / 3600;
+            unit = "hours";
+        } else if (num >= 60 && num % 60 === 0) {
+            num = num / 60;
+            unit = "min";
+        } else {
+            unit = "sec";
+        }
+        valEl.value = num;
+        unitEl.value = unit;
+    }
+
+    // Canal Ariete 1
+    const a1 = data.ariete_1 || {};
+    const a1Ton = a1.time_on !== undefined ? a1.time_on : data.time_on;
+    const a1Toff = a1.time_off !== undefined ? a1.time_off : data.time_off;
+    updateNumField("a1_timeOn", a1Ton);
+    updateNumField("a1_timeOff", a1Toff);
+
+    // Canal Polaridad 1
+    const p1 = data.polarity_1 || {};
+    updateTimeAndUnit("p1_timeA", "p1_unitA", p1.time_a);
+    updateTimeAndUnit("p1_timeB", "p1_unitB", p1.time_b);
+    updateNumField("p1_timeDead", p1.time_dead);
+
+    // Canal Polaridad 2
+    const p2 = data.polarity_2 || {};
+    updateTimeAndUnit("p2_timeA", "p2_unitA", p2.time_a);
+    updateTimeAndUnit("p2_timeB", "p2_unitB", p2.time_b);
+    updateNumField("p2_timeDead", p2.time_dead);
+
+    lastLoadedConfigDeviceId = currentDeviceId;
+}
+
 function updateUI(data) {
     updateConnectionBadge(data.is_online);
+    populateConfigInputs(data);
 
     // Versión firmware
     const fwElem = document.getElementById("firmwareVerText");

@@ -72,12 +72,16 @@ struct PolarityChannel {
         digitalWrite(pinB, bOn ? HIGH : LOW);
     }
 
+    void stop() {
+        isRunning = false;
+        state = POL_STOPPED;
+        setRelays(false, false);
+    }
+
     void update() {
         if (!isRunning) {
-            if (state != POL_STOPPED) {
-                state = POL_STOPPED;
-                setRelays(false, false);
-            }
+            state = POL_STOPPED;
+            setRelays(false, false);
             return;
         }
 
@@ -186,20 +190,22 @@ struct ArieteChannel {
         cycleCount = 0;
     }
 
+    void stop() {
+        isRunning = false;
+        state = ARIETE_STOPPED;
+        digitalWrite(pinRelay, LOW);
+    }
+
     void update(bool hasLevel, bool useSensor) {
         if (useSensor && !hasLevel) {
-            if (state != ARIETE_NO_LEVEL) {
-                state = ARIETE_NO_LEVEL;
-                digitalWrite(pinRelay, LOW);
-            }
+            state = ARIETE_NO_LEVEL;
+            digitalWrite(pinRelay, LOW);
             return;
         }
 
         if (!isRunning) {
-            if (state != ARIETE_STOPPED) {
-                state = ARIETE_STOPPED;
-                digitalWrite(pinRelay, LOW);
-            }
+            state = ARIETE_STOPPED;
+            digitalWrite(pinRelay, LOW);
             return;
         }
 
@@ -351,6 +357,10 @@ void initHardware() {
     polarity1.init(POLARITY_1_RELAY_A_PIN, POLARITY_1_RELAY_B_PIN);
     polarity2.init(POLARITY_2_RELAY_A_PIN, POLARITY_2_RELAY_B_PIN);
 
+    ariete1.stop();
+    polarity1.stop();
+    polarity2.stop();
+
     pinMode(LEVEL_SENSOR_PIN, INPUT_PULLDOWN);
     hasLevel = checkLevelSensor();
 }
@@ -367,6 +377,7 @@ void loadSettingsFromNVS() {
     ariete1.timeOffSec = preferences.getULong("a1_toff", 5);
     ariete1.cycleCount = preferences.getULong("a1_cyc", 0);
     ariete1.isRunning = preferences.getBool("a1_run", false);
+    if (!ariete1.isRunning) ariete1.stop();
 
     polarity1.timeA_sec = preferences.getULong("p1_ta", 60);
     polarity1.timeB_sec = preferences.getULong("p1_tb", 60);
@@ -375,6 +386,7 @@ void loadSettingsFromNVS() {
     polarity1.totalSecA = preferences.getULong("p1_tota", 0);
     polarity1.totalSecB = preferences.getULong("p1_totb", 0);
     polarity1.isRunning = preferences.getBool("p1_run", false);
+    if (!polarity1.isRunning) polarity1.stop();
 
     polarity2.timeA_sec = preferences.getULong("p2_ta", 60);
     polarity2.timeB_sec = preferences.getULong("p2_tb", 60);
@@ -383,6 +395,7 @@ void loadSettingsFromNVS() {
     polarity2.totalSecA = preferences.getULong("p2_tota", 0);
     polarity2.totalSecB = preferences.getULong("p2_totb", 0);
     polarity2.isRunning = preferences.getBool("p2_run", false);
+    if (!polarity2.isRunning) polarity2.stop();
 
     useLevelSensor = preferences.getBool("use_sensor", false);
 
@@ -501,10 +514,15 @@ void parseAWSResponse(String payload) {
 
     if (doc.containsKey("target_running")) {
         bool targetRun = doc["target_running"].as<bool>();
-        if (targetRun != ariete1.isRunning) {
-            ariete1.isRunning = targetRun;
-            needsSave = true;
+        if (!targetRun) {
+            ariete1.stop();
+        } else if (!ariete1.isRunning) {
+            ariete1.isRunning = true;
+            ariete1.state = ARIETE_ON;
+            digitalWrite(ariete1.pinRelay, HIGH);
+            ariete1.lastChangeMs = millis();
         }
+        needsSave = true;
     }
 
     if (doc.containsKey("target_time_on")) {
@@ -518,7 +536,17 @@ void parseAWSResponse(String payload) {
 
     if (doc.containsKey("cmd_ariete_1")) {
         JsonObject a1Cmd = doc["cmd_ariete_1"];
-        if (a1Cmd.containsKey("is_running")) ariete1.isRunning = a1Cmd["is_running"].as<bool>();
+        if (a1Cmd.containsKey("is_running")) {
+            bool runVal = a1Cmd["is_running"].as<bool>();
+            if (!runVal) {
+                ariete1.stop();
+            } else if (!ariete1.isRunning) {
+                ariete1.isRunning = true;
+                ariete1.state = ARIETE_ON;
+                digitalWrite(ariete1.pinRelay, HIGH);
+                ariete1.lastChangeMs = millis();
+            }
+        }
         if (a1Cmd.containsKey("time_on")) ariete1.timeOnSec = a1Cmd["time_on"].as<unsigned long>();
         if (a1Cmd.containsKey("time_off")) ariete1.timeOffSec = a1Cmd["time_off"].as<unsigned long>();
         if (a1Cmd.containsKey("reset_cycles") && a1Cmd["reset_cycles"].as<bool>()) ariete1.cycleCount = 0;
@@ -529,17 +557,14 @@ void parseAWSResponse(String payload) {
         JsonObject p1Cmd = doc["cmd_polarity_1"];
         if (p1Cmd.containsKey("is_running")) {
             bool runVal = p1Cmd["is_running"].as<bool>();
-            if (runVal != polarity1.isRunning) {
-                polarity1.isRunning = runVal;
-                if (polarity1.isRunning) {
-                    polarity1.state = POL_A;
-                    polarity1.setRelays(true, false);
-                    polarity1.lastChangeMs = millis();
-                    polarity1.lastSecTickMs = millis();
-                } else {
-                    polarity1.state = POL_STOPPED;
-                    polarity1.setRelays(false, false);
-                }
+            if (!runVal) {
+                polarity1.stop();
+            } else if (!polarity1.isRunning) {
+                polarity1.isRunning = true;
+                polarity1.state = POL_A;
+                polarity1.setRelays(true, false);
+                polarity1.lastChangeMs = millis();
+                polarity1.lastSecTickMs = millis();
             }
         }
         if (p1Cmd.containsKey("time_a")) {
@@ -563,17 +588,14 @@ void parseAWSResponse(String payload) {
         JsonObject p2Cmd = doc["cmd_polarity_2"];
         if (p2Cmd.containsKey("is_running")) {
             bool runVal = p2Cmd["is_running"].as<bool>();
-            if (runVal != polarity2.isRunning) {
-                polarity2.isRunning = runVal;
-                if (polarity2.isRunning) {
-                    polarity2.state = POL_A;
-                    polarity2.setRelays(true, false);
-                    polarity2.lastChangeMs = millis();
-                    polarity2.lastSecTickMs = millis();
-                } else {
-                    polarity2.state = POL_STOPPED;
-                    polarity2.setRelays(false, false);
-                }
+            if (!runVal) {
+                polarity2.stop();
+            } else if (!polarity2.isRunning) {
+                polarity2.isRunning = true;
+                polarity2.state = POL_A;
+                polarity2.setRelays(true, false);
+                polarity2.lastChangeMs = millis();
+                polarity2.lastSecTickMs = millis();
             }
         }
         if (p2Cmd.containsKey("time_a")) {
