@@ -71,12 +71,22 @@ function renderDeviceSelector() {
 
 let lastLoadedConfigDeviceId = null;
 
+const pendingCommandLocks = {
+    ariete_running: null,       // { is_running: bool, expires: ms }
+    polarity_1_running: null,   // { is_running: bool, expires: ms }
+    polarity_2_running: null,   // { is_running: bool, expires: ms }
+    ariete_reset: null,         // { expires: ms }
+    polarity_1_reset: null,     // { expires: ms }
+    polarity_2_reset: null      // { expires: ms }
+};
+
 function onDeviceChange() {
     const select = document.getElementById("deviceSelect");
     if (select) {
         select.dataset.userSelected = "true";
         currentDeviceId = select.value;
         lastLoadedConfigDeviceId = null; // Forzar recarga inmediata de la configuración del nuevo dispositivo
+        for (let k in pendingCommandLocks) { pendingCommandLocks[k] = null; }
         fetchSystemStatus();
     }
 }
@@ -145,14 +155,15 @@ function formatTime(seconds) {
 
 function populateConfigInputs(data) {
     if (!data) return;
-    const isDeviceSwitch = (lastLoadedConfigDeviceId !== currentDeviceId);
+    // Solo sobreescribir los campos de configuración cuando se cambia de dispositivo
+    if (lastLoadedConfigDeviceId === currentDeviceId) {
+        return;
+    }
 
     function updateNumField(id, val) {
         const el = document.getElementById(id);
         if (el && val !== undefined && val !== null) {
-            if (isDeviceSwitch || document.activeElement !== el) {
-                el.value = val;
-            }
+            el.value = val;
         }
     }
 
@@ -161,7 +172,6 @@ function populateConfigInputs(data) {
         const valEl = document.getElementById(valId);
         const unitEl = document.getElementById(unitId);
         if (!valEl || !unitEl) return;
-        if (!isDeviceSwitch && (document.activeElement === valEl || document.activeElement === unitEl)) return;
 
         let num = parseInt(totalSec, 10);
         let unit = "sec";
@@ -257,6 +267,30 @@ function updateUI(data) {
         remaining_sec: data.remaining_sec || 0
     };
 
+    // Bloqueo de comando de marcha/paro para Ariete
+    if (pendingCommandLocks.ariete_running && Date.now() < pendingCommandLocks.ariete_running.expires) {
+        if (a1.is_running === pendingCommandLocks.ariete_running.is_running) {
+            pendingCommandLocks.ariete_running = null;
+        } else {
+            a1.is_running = pendingCommandLocks.ariete_running.is_running;
+            a1.state = a1.is_running ? "ON" : "STOPPED";
+            if (!a1.is_running) a1.remaining_sec = 0;
+        }
+    } else {
+        pendingCommandLocks.ariete_running = null;
+    }
+
+    // Bloqueo de reseteo de ciclos para Ariete
+    if (pendingCommandLocks.ariete_reset && Date.now() < pendingCommandLocks.ariete_reset.expires) {
+        if ((a1.cycle_count || 0) === 0) {
+            pendingCommandLocks.ariete_reset = null;
+        } else {
+            a1.cycle_count = 0;
+        }
+    } else {
+        pendingCommandLocks.ariete_reset = null;
+    }
+
     const a1_badge = document.getElementById("a1_statusBadge");
     if (a1_badge) {
         if (a1.state === "ON") {
@@ -279,6 +313,36 @@ function updateUI(data) {
 
     // 2. CANAL POLARIDAD 1
     const p1 = data.polarity_1 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0, total_sec_a: 0, total_sec_b: 0, total_sec_sum: 0 };
+
+    // Bloqueo de comando de marcha/paro para Polaridad 1
+    if (pendingCommandLocks.polarity_1_running && Date.now() < pendingCommandLocks.polarity_1_running.expires) {
+        if (p1.is_running === pendingCommandLocks.polarity_1_running.is_running) {
+            pendingCommandLocks.polarity_1_running = null;
+        } else {
+            p1.is_running = pendingCommandLocks.polarity_1_running.is_running;
+            if (!p1.is_running) {
+                p1.state = "STOPPED";
+                p1.remaining_sec = 0;
+            }
+        }
+    } else {
+        pendingCommandLocks.polarity_1_running = null;
+    }
+
+    // Bloqueo de reseteo para Polaridad 1
+    if (pendingCommandLocks.polarity_1_reset && Date.now() < pendingCommandLocks.polarity_1_reset.expires) {
+        if ((p1.total_sec_sum || 0) === 0 && (p1.cycle_count || 0) === 0) {
+            pendingCommandLocks.polarity_1_reset = null;
+        } else {
+            p1.total_sec_a = 0;
+            p1.total_sec_b = 0;
+            p1.total_sec_sum = 0;
+            p1.cycle_count = 0;
+        }
+    } else {
+        pendingCommandLocks.polarity_1_reset = null;
+    }
+
     const p1_badge = document.getElementById("p1_statusBadge");
     if (p1_badge) {
         if (p1.state === "POLARITY_A") {
@@ -311,6 +375,36 @@ function updateUI(data) {
 
     // 3. CANAL POLARIDAD 2
     const p2 = data.polarity_2 || { state: "STOPPED", is_running: false, cycle_count: 0, remaining_sec: 0, total_sec_a: 0, total_sec_b: 0, total_sec_sum: 0 };
+
+    // Bloqueo de comando de marcha/paro para Polaridad 2
+    if (pendingCommandLocks.polarity_2_running && Date.now() < pendingCommandLocks.polarity_2_running.expires) {
+        if (p2.is_running === pendingCommandLocks.polarity_2_running.is_running) {
+            pendingCommandLocks.polarity_2_running = null;
+        } else {
+            p2.is_running = pendingCommandLocks.polarity_2_running.is_running;
+            if (!p2.is_running) {
+                p2.state = "STOPPED";
+                p2.remaining_sec = 0;
+            }
+        }
+    } else {
+        pendingCommandLocks.polarity_2_running = null;
+    }
+
+    // Bloqueo de reseteo para Polaridad 2
+    if (pendingCommandLocks.polarity_2_reset && Date.now() < pendingCommandLocks.polarity_2_reset.expires) {
+        if ((p2.total_sec_sum || 0) === 0 && (p2.cycle_count || 0) === 0) {
+            pendingCommandLocks.polarity_2_reset = null;
+        } else {
+            p2.total_sec_a = 0;
+            p2.total_sec_b = 0;
+            p2.total_sec_sum = 0;
+            p2.cycle_count = 0;
+        }
+    } else {
+        pendingCommandLocks.polarity_2_reset = null;
+    }
+
     const p2_badge = document.getElementById("p2_statusBadge");
     if (p2_badge) {
         if (p2.state === "POLARITY_A") {
@@ -400,6 +494,18 @@ function updateConnectionBadge(isOnline) {
 
 // FUNCIONES DE CONTROL DE CANALES
 
+function showButtonFeedback(btnId, msg) {
+    const btn = document.getElementById(btnId);
+    if (!btn) return;
+    const originalHtml = btn.innerHTML;
+    btn.innerHTML = `<i class="fa-solid fa-check mr-1.5"></i> ${msg}`;
+    btn.classList.add("!bg-emerald-600");
+    setTimeout(() => {
+        btn.innerHTML = originalHtml;
+        btn.classList.remove("!bg-emerald-600");
+    }, 2000);
+}
+
 async function sendCommandPayload(cmdPayload) {
     try {
         const select = document.getElementById("deviceSelect");
@@ -416,7 +522,7 @@ async function sendCommandPayload(cmdPayload) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
         });
-        setTimeout(fetchSystemStatus, 500);
+        setTimeout(fetchSystemStatus, 1500);
     } catch (e) {
         console.error("Error enviando comando:", e);
     }
@@ -425,6 +531,8 @@ async function sendCommandPayload(cmdPayload) {
 function setAriete1Running(isRunning) {
     const select = document.getElementById("deviceSelect");
     if (select && select.value) currentDeviceId = select.value;
+
+    pendingCommandLocks.ariete_running = { is_running: isRunning, expires: Date.now() + 8000 };
 
     if (!currentData.ariete_1) currentData.ariete_1 = {};
     currentData.ariete_1.is_running = isRunning;
@@ -442,8 +550,10 @@ function setAriete1Running(isRunning) {
 }
 
 function saveAriete1Config() {
-    const ton = parseInt(document.getElementById("a1_timeOn").value) || 5;
-    const toff = parseInt(document.getElementById("a1_timeOff").value) || 5;
+    const ton = parseInt(document.getElementById("a1_timeOn").value, 10) || 5;
+    const toff = parseInt(document.getElementById("a1_timeOff").value, 10) || 5;
+
+    showButtonFeedback("btnSaveAriete", "¡Tiempos Ariete Guardados!");
 
     sendCommandPayload({
         cmd_ariete_1: { time_on: ton, time_off: toff },
@@ -454,6 +564,8 @@ function saveAriete1Config() {
 
 function resetAriete1Cycles() {
     if (confirm("¿Estás seguro de que deseas resetear los ciclos del Golpe de Ariete?")) {
+        pendingCommandLocks.ariete_reset = { expires: Date.now() + 8000 };
+
         if (!currentData.ariete_1) currentData.ariete_1 = {};
         currentData.ariete_1.cycle_count = 0;
         currentData.cycle_count = 0;
@@ -469,6 +581,8 @@ function setPolarity1Running(isRunning) {
     const select = document.getElementById("deviceSelect");
     if (select && select.value) currentDeviceId = select.value;
 
+    pendingCommandLocks.polarity_1_running = { is_running: isRunning, expires: Date.now() + 8000 };
+
     if (!currentData.polarity_1) currentData.polarity_1 = {};
     currentData.polarity_1.is_running = isRunning;
     currentData.polarity_1.state = isRunning ? "POLARITY_A" : "STOPPED";
@@ -482,6 +596,8 @@ function setPolarity1Running(isRunning) {
 
 function resetPolarity1Totals() {
     if (confirm("¿Estás seguro de que deseas resetear las horas acumuladas de la Polaridad 1?")) {
+        pendingCommandLocks.polarity_1_reset = { expires: Date.now() + 8000 };
+
         if (!currentData.polarity_1) currentData.polarity_1 = {};
         currentData.polarity_1.total_sec_a = 0;
         currentData.polarity_1.total_sec_b = 0;
@@ -496,7 +612,7 @@ function resetPolarity1Totals() {
 }
 
 function convertToSeconds(value, unit) {
-    const val = parseInt(value) || 1;
+    const val = parseInt(value, 10) || 1;
     if (unit === "hours") return val * 3600;
     if (unit === "min") return val * 60;
     return val;
@@ -507,10 +623,12 @@ function savePolarity1Config() {
     const unitA = document.getElementById("p1_unitA").value;
     const timeBVal = document.getElementById("p1_timeB").value;
     const unitB = document.getElementById("p1_unitB").value;
-    const timeDead = parseInt(document.getElementById("p1_timeDead").value) || 3;
+    const timeDead = parseInt(document.getElementById("p1_timeDead").value, 10) || 3;
 
     const timeASec = convertToSeconds(timeAVal, unitA);
     const timeBSec = convertToSeconds(timeBVal, unitB);
+
+    showButtonFeedback("btnSavePolarity1", "¡Tiempos P1 Guardados!");
 
     sendCommandPayload({
         cmd_polarity_1: { time_a: timeASec, time_b: timeBSec, time_dead: timeDead }
@@ -520,6 +638,8 @@ function savePolarity1Config() {
 function setPolarity2Running(isRunning) {
     const select = document.getElementById("deviceSelect");
     if (select && select.value) currentDeviceId = select.value;
+
+    pendingCommandLocks.polarity_2_running = { is_running: isRunning, expires: Date.now() + 8000 };
 
     if (!currentData.polarity_2) currentData.polarity_2 = {};
     currentData.polarity_2.is_running = isRunning;
@@ -562,6 +682,8 @@ async function deleteCurrentDevice() {
 
 function resetPolarity2Totals() {
     if (confirm("¿Estás seguro de que deseas resetear las horas acumuladas de la Polaridad 2?")) {
+        pendingCommandLocks.polarity_2_reset = { expires: Date.now() + 8000 };
+
         if (!currentData.polarity_2) currentData.polarity_2 = {};
         currentData.polarity_2.total_sec_a = 0;
         currentData.polarity_2.total_sec_b = 0;
@@ -580,10 +702,12 @@ function savePolarity2Config() {
     const unitA = document.getElementById("p2_unitA").value;
     const timeBVal = document.getElementById("p2_timeB").value;
     const unitB = document.getElementById("p2_unitB").value;
-    const timeDead = parseInt(document.getElementById("p2_timeDead").value) || 3;
+    const timeDead = parseInt(document.getElementById("p2_timeDead").value, 10) || 3;
 
     const timeASec = convertToSeconds(timeAVal, unitA);
     const timeBSec = convertToSeconds(timeBVal, unitB);
+
+    showButtonFeedback("btnSavePolarity2", "¡Tiempos P2 Guardados!");
 
     sendCommandPayload({
         cmd_polarity_2: { time_a: timeASec, time_b: timeBSec, time_dead: timeDead }
